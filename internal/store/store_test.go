@@ -181,3 +181,32 @@ func TestClaimReleaseAndReclaim(t *testing.T) {
 		t.Fatal("reclaim after release must succeed")
 	}
 }
+
+// TestLegacyClaimCount confirms the one-time transition gap is observable: a
+// claim written WITHOUT claim_topic (as pre-v0.4 claims are) is counted as
+// legacy and stays invisible to the atomic path.
+func TestLegacyClaimCount(t *testing.T) {
+	home := t.TempDir()
+	os.Setenv("WARD_HOME", home)
+	defer os.Unsetenv("WARD_HOME")
+	s, _ := Open()
+	defer s.DB.Close()
+
+	// A pre-v0.4-style claim: claim_topic left NULL (mimics the old UpsertArtifact path).
+	if _, err := s.DB.Exec(`INSERT INTO artifacts (id, kind, summary, content, tags, status, created_by, created_at, local, claim_topic)
+		VALUES ('claim:old', 'claim', 'old', 'x', '["claim","old",""]', 'accepted', 'a', 't', 1, NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	// A v0.4-style claim: has claim_topic, must NOT count as legacy.
+	if _, conflict, err := s.ClaimTopic("new", "", "a", ""); err != nil || conflict {
+		t.Fatalf("new claim should win (conflict=%v err=%v)", conflict, err)
+	}
+
+	n, err := s.LegacyClaimCount()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("exactly one legacy (NULL claim_topic) claim expected, got %d", n)
+	}
+}

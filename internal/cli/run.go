@@ -196,6 +196,12 @@ func doctorCmd() *cobra.Command {
 				var uv int
 				_ = s.DB.QueryRow("PRAGMA user_version").Scan(&uv)
 				health["user_version"] = uv
+				// Legacy claims (pre-v0.4) have claim_topic NULL, so the
+				// atomicity index doesn't enforce them. Surface the count so
+				// the one-time transition gap is visible, not silent.
+				if n, err := s.LegacyClaimCount(); err == nil {
+					health["legacy_claims"] = n
+				}
 			}
 			health["git"] = gitAvailable()
 			if jsonOut {
@@ -203,6 +209,7 @@ func doctorCmd() *cobra.Command {
 			} else {
 				printLine(fmt.Sprintf("store: %v", health["store"]))
 				printLine(fmt.Sprintf("user_version: %v", health["user_version"]))
+				printLine(fmt.Sprintf("legacy_claims (pre-v0.4, not atomically enforced): %v", health["legacy_claims"]))
 				printLine(fmt.Sprintf("git: %v", health["git"]))
 			}
 			return nil

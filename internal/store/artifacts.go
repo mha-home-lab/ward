@@ -104,6 +104,20 @@ func isUniqueViolation(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
+// LegacyClaimCount returns the number of accepted claim artifacts that predate
+// the v0.4 atomicity migration: they have `claim_topic IS NULL`, so the unique
+// index does NOT enforce them. This is a one-time transition gap (only claims
+// created before the migration), surfaced by `ward doctor` so it is visible
+// rather than a silent hole in the atomicity guarantee.
+func (s *Store) LegacyClaimCount() (int, error) {
+	var n int
+	err := s.DB.QueryRow(`SELECT count(*) FROM artifacts WHERE kind='claim' AND status='accepted' AND claim_topic IS NULL`).Scan(&n)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // GetArtifact loads one artifact by id.
 func (s *Store) GetArtifact(id string) (Artifact, error) {
 	var a Artifact

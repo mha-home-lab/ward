@@ -543,8 +543,14 @@ non-goals). Spec-first: `.spec/broker.md` written before any code.
 
 ### Open questions carried
 
-- Legacy (pre-v0.4) claims have `claim_topic=NULL` → grandfathered, not enforced
-  by the index. Acceptable.
+- **Legacy (pre-v0.4) claims — RESOLVED to visible, not silent.** They have
+  `claim_topic=NULL` so the unique index does not enforce them and
+  `activeClaims` does not list them: a pre-v0.4 claim is silently
+  non-enforceable and will not block a later `claim add` on the same topic.
+  This is a **one-time transition gap**, not recurrent. Made visible via
+  `ward doctor` (`legacy_claims` count of accepted `kind=claim` rows with
+  `claim_topic IS NULL`); `Store.LegacyClaimCount` + `TestLegacyClaimCount`.
+  Backfilling old claims left undone (operator can see/clear them).
 - An expired-but-unreleased claim still blocks re-claim (the index is static); a
   `tick`-style sweep that nulls `claim_topic` on expired claims is deferred.
 - Topic granularity for work items (`<runID>:<nodeID>` proposed) left to the

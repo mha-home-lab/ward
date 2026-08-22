@@ -111,10 +111,18 @@ making the *work* re-claimable by a different process.
 
 ## Open questions / risks
 
-- **Legacy claims.** Claims created before this migration have `claim_topic =
-  NULL` and are grandfathered: they are not enforced by the unique index and are
-  excluded from "active" listing. Acceptable; they predate the broker. Open:
-  backfill vs. leave them — left as-is for v0.4.
+- **Legacy claims (operationally resolved, recorded here).** Claims created
+  before this migration have `claim_topic = NULL`, so the unique index does
+  **not** enforce them and `activeClaims` (which filters `claim_topic IS NOT
+  NULL`) does not list them. Operational meaning, made explicit: a pre-v0.4
+  claim is **silently non-enforceable** — it will not block a new `claim add`
+  on the same topic, and it will not be reported as an active claim. This is a
+  **one-time transition gap**, not a recurrent one: every claim created *after*
+  the migration carries `claim_topic` and is fully enforced. It is made
+  *visible* (not silent) via `ward doctor`, which reports `legacy_claims` = the
+  count of accepted `kind=claim` rows with `claim_topic IS NULL`. Backfilling
+  old claims (stamping `claim_topic` from their `tags`) is deliberately left
+  undone — they predate the broker and the operator can see and clear them.
 - **Expiry vs. the index.** The unique index is static; an expired claim keeps
   `claim_topic` set until something clears it. Release clears it explicitly; an
   un-released expired claim would still block re-claim. Open: a `tick`-style sweep
