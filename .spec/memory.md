@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | Draft (v1 planning) |
+| Status | Implemented (v0.5: brief session bootstrap) |
 | Domain | memory |
-| Version | 0.1.0 |
+| Version | 0.5.0 |
 
 ## Purpose
 
@@ -65,6 +65,23 @@ qwen-auth feedback (over-engineered for small/solo work).
   `supersede --reason "stale per verify"`. (verification.md owns the mechanics.)
 - **`supersede` reason vocabulary grows** to include `stale per verify` and
   `superseded by newer run` (ciao result capture), so retirement is auditable.
+  v0.5 adds `drift` (tick --heal; verification.md item 7).
+
+## Session bootstrap: `ward brief` (v0.5)
+
+One command at session start, replacing the old "run tick, then context" two-step:
+
+1. Runs the tick sweep live (re-verify local artifacts, free expired claims).
+2. Reports prior knowledge for an optional topic — compact pointers only
+   (id/kind/summary/tags/verify_status), never full content.
+3. Surfaces open runs (`running` / `awaiting_approval`), active claims, and a
+   store health snapshot (accepted/verified/proposed counts).
+4. Ends with imperative next actions (`ward run approve <id> <node>`, "reuse
+   verified context", "topic X is claimed by Y", or "store clean: proceed").
+
+`--json` emits the full structured report. Brief is the machine-readable answer
+to "where do I pick up?" without replaying history — the injection point every
+future agent session starts from.
 
 ## Retrieval rules (carried from chef cli-001)
 

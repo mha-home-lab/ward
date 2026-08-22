@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | Draft (v1 planning) |
+| Status | Implemented (tree below reflects v0.5) |
 | Domain | cli |
-| Version | 0.1.0 |
+| Version | 0.5.0 |
 
 ## Purpose
 
@@ -51,40 +51,38 @@ errors). CLI-first; MCP/TUI are deferred (blueprint non-goals).
 - **`--verify "<cmd>"`** accepted on `put`/`propose` to attach a check (chef
   v1.0.0 feature, surfaced as first-class here).
 
-## Proposed command tree
+## Shipped command tree (v0.5)
 
 ```
 ward
-├── init [--root .] [--scaffold] [--docs] # --scaffold writes workflows/default.yaml; --docs writes .spec/.arch skeletons
-├── validate
-├── run <workflow> [--title T]        # alias: intake
-├── resume <run_id>
-├── approve <approval_id> | reject <approval_id>
-├── route <node|text>                 # router introspection
-├── verify [--project X]
-├── tick "<msg>" [--status FIELDS]
-├── memory
-│   ├── put|propose <kind> <summary> [--content|--file] [--tags] [--verify CMD] [--project X] [--ceremony light|full]
-│   ├── promote <id>... [--reason R] [-b WHO]
-│   ├── supersede <id> [--with <new>] [--reason R]
-│   ├── search <q> [-n] [-k kind] [--project X] [--digest]
-│   ├── list [-k kind] [-s status] [-n] [--project X] [--digest]
-│   ├── stale [-n] [-d days] [--project X]
-│   ├── get <id>
-│   ├── context [q] [-n] [--project X] [--digest]
-│   ├── overview [-n]
-│   ├── claim <topic> [--ttl D] [--project X]
-│   ├── handoff [--session S] [-s summary] [--incomplete JSON]
-│   └── fsck
-├── workflow list|status <id>|resume <id>
-├── channel list|inspect <name>
-├── agent list|inspect <name>|process <name>
-├── skill list|inspect <name>
-└── watch
+├── brief [topic] [--repo R] [-n hits]      # session bootstrap: sweep + knowledge + runs + claims + next actions
+├── init [--scaffold] [--docs] [--no-agents-md]  # store + agent-protocol injection into AGENTS.md/CLAUDE.md/GEMINI.md
+├── task                                    # dispatch pool (broker.md §4)
+│   ├── add <title> [--tier F] [--kind K] [--run CMD] [--verify-cmd CMD]
+│   ├── next --by AGENT [--max-tier BUDGET] # atomic pull, budget admission
+│   ├── list [--status S]
+│   ├── done <id> | fail <id>               # close / release one tier higher
+│   └── workflow <id> [--out P]             # generate runnable single-node DAG
+├── run <start|status|approve|resume>
+├── capture (--run ID | --node ID --workflow P)
+├── explain <runID> [node]                  # routing evidence chain (routing.md)
+├── reject <runID>                          # reject dossier reader
+├── route <node> / router [--workflow W] [--seed|--seed-stale]
+├── verify <id>|--all [--trust]
+├── tick [--heal] [--repo R]                # drift sweep; heal supersedes drift
+├── memory put|get|search|list|promote|supersede|handoff|context|stale|claim...
+├── workflow show|validate
+├── doctor
+├── version
+└── completion <shell>
 ```
 
-All commands honor global `--json` and `--root`. Exit codes: `0` ok, non-zero on
-unknown id / validation failure / verify ✗ (when `--strict`).
+Deviations from the original proposal: `intake`/`validate`/`channel`/`agent`/
+`skill`/`watch` were not built — the dispatch pool (`task`) replaced free-text
+intake with explicit flags; `explain` + `reject` grew out of the audit needs of
+the router and escalation path; `brief` subsumed chef's `resume`/`overview`
+intent as a single session-start command. `--digest` was never needed. All
+commands honor global `--json`; exit `0` ok / non-zero error.
 
 ## Flag conventions
 
@@ -97,14 +95,15 @@ unknown id / validation failure / verify ✗ (when `--strict`).
 
 ## Open questions / risks
 
-- **Command namespace collision.** `run` (ciao) vs chef's verbs; resolved by
-  nesting memory under `ward memory` and orchestration at top level. Alternative:
-  flatten everything (chef-style). Proposal: nested `memory` subtree to keep the
-  two domains readable. Open.
-- **`intake` vs `run`.** Is a free-text intake command worth a separate verb, or
-  is `workflow run` enough? Lean: keep `run`, add `intake` only if a default
-  workflow + parse is wanted. Open.
-- **`verify --strict` exit code.** Should a ✗ fail the command (non-zero)? Useful
-  in CI; risky in interactive use. Proposal: `--strict` opt-in. Open.
-- **MCP later.** When added, it should expose `propose`/`route`/`verify`, never
-  `put`/`promote` (chef rule: agent path proposes, never auto-promotes). v2.
+- **Command namespace collision — RESOLVED.** Memory nested under `ward memory`,
+  orchestration at top level (`run`), dispatch pool as `task`. Held through v0.5.
+- **`intake` vs `run` — RESOLVED differently.** Free-text intake became
+  `ward task add "<title>"` with explicit flags (broker.md §4): a sentence is a
+  title, never a parsed spec. No NLP inference in the CLI.
+- **`verify --strict` exit code.** Never built; conflicts are hard errors and
+  verify failures surface via status, which proved sufficient. Closed by
+  disuse.
+- **MCP later.** When added, it should expose read-only tools (`is_verified`,
+  `route`, `context`, claim acquire/release) over the same store — one
+  invariant, many doors. Evaluated in the v0.5 wish triage: deferred to its own
+  session with the official SDK. Still v2.

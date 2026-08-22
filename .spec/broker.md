@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | Draft (v0.4 planning) |
+| Status | Implemented (v0.4 primitives, v0.5 dispatch pool) |
 | Domain | broker |
-| Version | 0.4.0 |
+| Version | 0.5.0 |
 
 ## Purpose
 
@@ -86,34 +86,67 @@ also forces `full` ceremony, consistent with the existing `t == strong` rule).
 `orchestration` passes `node.Tier` into the Inputs. A `strong` floor on a node
 that would otherwise route `cheap` (memory hit + verified) yields `strong`.
 
-### 3. Cross-process escalation handoff (DESIGN ONLY — not implemented this pass)
+### 3. Cross-process escalation handoff (v0.4 design → v0.5 realized)
 
 Today `failNode()` escalates a node *within one Engine's run loop*: it bumps
 `escalation`, marks the node `failed`, and the same loop re-picks it. For parallel
 agents that breaks, because the retrying agent may be a different process than the
 one that failed.
 
-Design:
-- Each work item is its own claim topic, e.g. `claim_topic = "<runID>:<nodeID>"`.
-- On failure, the **claim is released** (so the slot reopens) **and** the node's
-  required tier bumps by one. The bump is already persisted: `run_nodes.escalation`
-  is incremented by `failNode` today, and the router maps `escalation` → tier. So
-  the *required tier* survives across processes for free — no new column needed.
-- The node then re-enters the **pickup pool for ANY eligible agent** (any agent
-  whose budget ≥ the new required tier), not necessarily the one that failed.
-- The pickup pool / poll loop that actually matches `(requiredTier, agentBudget)`
-  and hands out work is the broker service — explicitly deferred (non-goal).
+Design (now realized via the task pool, §4):
+- Each work item is its own claimable unit — realized as a **`tasks` row**, not
+  an artifact tag: the pool needs tier floors and status transitions that don't
+  belong in the memory store.
+- On failure, the item is **released back to open** and its required tier bumps
+  by one (`Store.FailTask`: floor cheap→mid→strong, then `rejected`). The bump is
+  persisted on the task row itself, so the *required tier* survives across
+  processes. Past strong there is no higher tier: the task is rejected for a
+  human, never looped.
+- The task then re-enters the **pool for ANY eligible agent** (any agent whose
+  budget ≥ the new floor), not necessarily the one that failed.
 
-This keeps escalation semantics identical (budget, cap at 2, reject→human) while
-making the *work* re-claimable by a different process.
+### 4. The dispatch pool (v0.5) — pickup loop + budget admission
+
+The v0.5 slice closes what §"non-goals" deferred. Store-native, no service:
+
+- **Producer:** `ward task add "<title>" [--tier FLOOR] [--kind K] [--run CMD]
+  [--verify-cmd CMD]` creates an `open` task. No YAML authoring; flags over NLP
+  inference (a sentence is a title, not a parsed spec).
+- **Consumer:** `ward task next --by <agent> --max-tier BUDGET` pulls the
+  highest-floor open task whose `tier_rank <= budget_rank`. Admission is the
+  agent-side of the match (wish 02): a cheap-budget agent never receives a mid or
+  strong item; among admissible tasks, highest floor wins (hardest eligible work
+  first).
+- **Atomicity:** `ClaimNextTask` SELECTs candidate ids ordered by floor DESC,
+  then issues a **conditional UPDATE** (`WHERE id=? AND status='open'`) per
+  candidate; `RowsAffected == 1` wins. Two concurrent processes can never both
+  win the same task — the status transition is the arbiter, same spirit as the
+  unique-index claim lock (a lost race moves to the next candidate).
+- **Lifecycle:** `ward task done <id>` closes claimed work;
+  `ward task fail <id>` releases it one tier higher (§3); `ward task list
+  [--status]` inspects the pool.
+- **Execution bridge:** `ward task workflow <id>` generates a runnable
+  single-node DAG (`start → work → done`, orchestration.md TaskWorkflow) with
+  the task's `run:` command, records it on the task, and prints the run command.
+  Agents compose: next → workflow → `ward run start`.
+
+Guardrail held: advisory-of-work, exclusive-of-topic. The pool never assigns
+work; agents pull, and the atomic pull guarantees one owner.
 
 ## Output contract
 
 - `artifacts.claim_topic` + `uni_claim_topic` index: the atomicity invariant.
 - `routing_decisions` rows now reflect the floor when a node declares `tier:`.
 - `run_nodes.escalation` doubles as the cross-process required-tier signal.
+- `tasks` table (storage.md v4): the dispatch pool — floor, rank, status,
+  claimed_by/at, escalation, generated workflow path.
 
 ## Open questions / risks
+
+- **Agent registry table vs `--max-tier` flag (v0.5 decision).** Budgets are
+  currently declared at pull time (`--max-tier`), not persisted in the idle
+  `agents` table. A persistent registry pays off only when many agents poll
+  repeatedly under one identity; revisit if fleet usage materializes.
 
 - **Legacy claims (operationally resolved, recorded here).** Claims created
   before this migration have `claim_topic = NULL`, so the unique index does
@@ -129,11 +162,13 @@ making the *work* re-claimable by a different process.
   undone — they predate the broker and the operator can see and clear them.
 - **Expiry vs. the index.** The unique index is static; an expired claim keeps
   `claim_topic` set until something clears it. Release clears it explicitly; an
-  un-released expired claim would still block re-claim. Open: a `tick`-style sweep
-  that nulls `claim_topic` on expired claims. Deferred (activeClaims already hides
-  expired claims from listing; the blocking case is rare and mitigated by release).
-- **Pickup/poll loop + agent budget registration** are the next piece (v0.5+),
-  built directly on these two primitives. Deliberately not in this spec.
-- **Topic granularity for work items.** Using `<runID>:<nodeID>` scopes a claim to
-  one node of one run; an alternative is one topic per logical spec. Left to the
-  broker design (out of scope).
+  un-released expired claim would still block re-claim. **RESOLVED (v0.4.x):**
+  the tick sweep (`Store.SweepExpiredClaims`) nulls `claim_topic` on expired
+  claims so the slot reopens; covered by `TestClaimExpiredThenTickFrees`.
+- ~~**Pickup/poll loop + agent budget registration** are the next piece (v0.5+),
+  built directly on these two primitives. Deliberately not in this spec.~~
+  **DELIVERED (v0.5, §4)** as the store-native dispatch pool.
+- **Topic granularity for work items.** Using `<runID>:<nodeID>` scopes a claim
+  to one node of one run; an alternative is one topic per logical spec.
+  **RESOLVED (v0.5):** work items are `tasks` rows with their own identity;
+  topic claims remain for ad-hoc coordination (files, migrations, releases).

@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | Draft (v1 planning) |
+| Status | Implemented (pure function; v0.5 adds observers) |
 | Domain | routing |
-| Version | 0.1.0 |
+| Version | 0.5.0 |
 
 ## Purpose
 
@@ -77,6 +77,14 @@ This is the audit trail and the seed for a future learned router (out of v1
 scope). The executor (orchestration.md) reads `{tier, model}` to call the
 provider and `{ceremony_level}` to decide lifecycle/approval strictness.
 
+**Observers (v0.5) — read the trail, never feed it.** `ward explain <run>
+[node]` reconstructs a decision's evidence chain: signals, verified context ids
+re-checked live, contention inputs, per-attempt transcript from `run_events`.
+`ward reject <run>` reads the dossier written at escalation exhaustion.
+Neither runs commands nor mutates routing state; the router's purity
+(`routing.Route`: same inputs → same decision, no I/O) is unchanged and remains
+load-bearing.
+
 ## Open questions / risks
 
 - **Tier → model mapping is deployment-specific.** WARD ships a default but the
@@ -92,9 +100,7 @@ provider and `{ceremony_level}` to decide lifecycle/approval strictness.
   Open: revisit after `routing_decisions` accumulates data.
 - **Contention threshold.** What branching factor / overlap triggers `full`
   ceremony? Needs a tuned constant or a config knob. Open.
-- **Retry budget / loop protection (explicit).** The cheap→mid→strong escalation
-  on failure needs a hard cap (proposal: max 2 escalations per work unit) and a
-  guard against escalate→fail→escalate loops. When `strong` itself fails, the
-  path must terminate (mark the run `rejected` or route to a human), not retry
-  indefinitely. The exact budget and the "all tiers failed" handler are not yet
-  fixed. Open.
+- **Retry budget / loop protection — RESOLVED (v0.1 slice).** Cap = 2
+  escalations (`routing.MaxEscalation`); `strong` failure terminates the unit:
+  run marked `rejected`, dossier written (orchestration.md), never retried
+  again. Proven by `TestEngineRunFailureEscalates`.

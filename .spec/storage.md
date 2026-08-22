@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | Draft (v1 planning) |
+| Status | Implemented through v4 (see migration log) |
 | Domain | storage |
-| Version | 0.1.0 |
+| Version | 0.5.0 |
 
 ## Purpose
 
@@ -162,6 +162,44 @@ CREATE TABLE routing_decisions (
   created_at TEXT NOT NULL
 );
 ```
+
+## Migrations shipped (additive, `PRAGMA user_version`)
+
+The sketch above is the v1 baseline. Later versions arrived as additive steps
+(`ALTER TABLE ... ADD COLUMN` if-missing / `CREATE TABLE IF NOT EXISTS` /
+`CREATE INDEX IF NOT EXISTS`), never a rewrite:
+
+- **v1 → v2:** `run_nodes.escalation` (retry budget), `routing_decisions.context`
+  (verified artifact ids only — never failed-attempt prose), `runs.workflow_path`
+  (so `resume`/`approve` reload the originating YAML in a second session).
+- **v2 → v3 (broker.md §1):** `artifacts.claim_topic` + **unique index
+  `uni_claim_topic(claim_topic, project)`** — the atomic claim lock. SQLite
+  treats NULLs as distinct, so the index constrains only *active* claims; release
+  and expiry sweep set `claim_topic = NULL` to free the slot.
+- **v3 → v4 (broker.md §4):** the dispatch pool:
+
+```sql
+CREATE TABLE tasks (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  kind TEXT DEFAULT 'default',
+  tier_floor TEXT DEFAULT 'mid',   -- admission floor: cheap|mid|strong
+  tier_rank INTEGER DEFAULT 1,     -- 0..2 mirror for SQL comparison
+  status TEXT NOT NULL DEFAULT 'open',  -- open|claimed|done|rejected
+  claimed_by TEXT,
+  claimed_at TEXT,
+  workflow_path TEXT,
+  verify_cmd TEXT,
+  run TEXT,
+  escalation INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+```
+
+Also shipped in this window: `Store.OpenRuns()` (open runs for handoff/brief)
+and `Store.LoadEvents(runID)` (ordered audit events — the raw material for
+`ward explain` and the reject dossier).
 
 ## Migration approach
 

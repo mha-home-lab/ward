@@ -561,3 +561,84 @@ non-goals). Spec-first: `.spec/broker.md` written before any code.
 - Topic granularity for work items (`<runID>:<nodeID>` proposed) left to the
   broker design.
 
+## v0.5 — self-consulting tool + dispatch loop (2026-08-22, commits e517656 + 181b4c6)
+
+Two slices: (a) auto-consultation — the project carries its own protocol; (b)
+the wish-list triage — 7 of 13 wishes implemented, rest tossed with rationale.
+
+### Slice A: auto-consultation
+
+- **Agent-doc injection (`internal/cli/agentdoc.go`).** `ward init` injects a
+  marker-delimited protocol block into `AGENTS.md` by default (creates if
+  missing) and refreshes existing `CLAUDE.md`/`GEMINI.md` (never invents).
+  Idempotent: unchanged → no-op; corrupted managed region → refreshed in place;
+  half-present markers → refused (no guessing). `--no-agents-md` opts out.
+  Content outside markers is never touched. Tests:
+  `TestUpsertAgentBlock*`, `TestEnsureAgentDocsOnlyUpdatesExistingExtras`.
+- **`ward brief [topic]`.** Session bootstrap: live tick sweep (drift caught
+  before it routes wrong), expired-claim sweep, compact knowledge pointers,
+  open runs, active claims, health counts, imperative next actions.
+  `--json` structured. Tests: `TestBriefSurfacesKnowledgeRunsAndClaims`,
+  `TestBriefNextActionsGuidance`.
+- Plumbing: `ward version`; cobra completions confirmed; `claim add --json`
+  fixed (was human-only); `run start` resolves
+  `--workflow > workflows/default.yaml > demo` instead of hardcoding oidc-login.
+
+### Slice B: wish-list triage (implemented)
+
+- **Dispatch pool (wishes 01+02, broker.md §4).** `tasks` table (schema v4);
+  `ward task add|next|list|done|fail|workflow`. Atomic pull via conditional
+  UPDATE on `status='open'`; `--max-tier` is a hard budget ceiling (admission);
+  failure bumps floor one tier back into the pool; past strong → rejected for a
+  human. `task workflow` generates a runnable single-node DAG
+  (orchestration.md TaskWorkflow). Tests: `TestTaskLifecycle`,
+  `TestClaimNextTaskAdmissionByBudget`, `TestFailTaskBumpsFloorThenRejects`,
+  `TestTaskBrokerFlow`.
+- **Self-healing ticks (wish 04, verification.md item 7).** `tick --heal`
+  supersedes local accepted artifacts failing live re-verification
+  (reason `drift`), inspecting post-sweep statuses so zombies from prior ticks
+  are healed too. Test: `TestTickHealSupersedesDriftedArtifacts`.
+- **Routing explainer (wish 05).** `ward explain <run> [node]`: decisions +
+  live re-read context status + per-attempt event transcript. Observer only;
+  router purity untouched.
+- **Reject dossier (wish 10, orchestration.md).** Engine writes an evidence
+  packet on escalation exhaustion (tier path, attempts, available verified
+  context), tagged `dossier` + `reject:<runID>` — deliberately NOT the bare
+  node id, which would count as a future memory hit (thesis violation caught in
+  review). `ward reject <run>` reads it. Test: `TestRejectDossierAndExplain`;
+  regression surfaced by `TestEngineRunFailureEscalates`.
+- **Golden verify kind (wish 11 partial).** `<expected-file>::<command>`:
+  output diff vs checked-in expectation, trailing newlines normalized. Test:
+  `TestRunGolden`.
+
+### Tossed (with rationale, recorded here so they aren't re-proposed)
+
+- Worktree isolation per claim (03): claim lock + unordered-sibling contention
+  detection suffice; FS mutation risk outweighs value today.
+- Cost accounting (06): free models, invented numbers — an observer without a
+  signal.
+- Project cost-policy ceilings (07): conflicts with escalation semantics (a
+  capped tier must reject on overflow); premature config surface.
+- Knowledge federation across stores (09): real but not now; import-as-untrusted
+  already exists via `put --imported`.
+- Watch daemon (12): a cron wrapper does 90%; daemon lifecycle (pid files,
+  single-instance) isn't worth it yet.
+- MCP substrate (13): strategically right, deferred to its own session with the
+  official Go SDK; CLI + `--json` serves agent integration today.
+- `judge` verify kind ≈ shell; `benchmark` needs numeric baselines (premature).
+
+### Specs updated in this pass
+
+storage.md (migration log v2–v4), broker.md (§3 realized, §4 added, open
+questions resolved), verification.md (golden kind, heal semantics, auto-supersede
+question resolved), memory.md (brief section, drift vocabulary),
+orchestration.md (TaskWorkflow, dossier, LoadEvents), routing.md (observers,
+retry budget resolved), cli.md (shipped command tree).
+
+### Open items carried
+
+- Agent registry persistence vs pull-time `--max-tier` (broker.md).
+- MCP substrate as the next major slice when multi-tool integration is needed.
+- Verify TTL window ("fresh enough") still unspeced — brief/tick re-verify on
+  every session start, which currently makes TTL moot in practice.
+

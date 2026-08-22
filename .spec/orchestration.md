@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | Draft (v1 planning) |
+| Status | Implemented (v0.5: task workflows, reject dossier) |
 | Domain | orchestration |
-| Version | 0.1.0 |
+| Version | 0.5.0 |
 
 ## Purpose
 
@@ -54,6 +54,28 @@ selection to the router (routing.md) instead of a hard-coded provider.
   (verification.md), not as orchestration noise.
 - **Agent I/O stays channel-based** but channel items are now DB rows, so
   "dedup on resume" is a `SELECT ... WHERE run_id = ?` instead of a file scan.
+- **Task workflow generation (v0.5).** `orchestration.TaskWorkflow(taskID,
+  title, kind, run, verifyCmd)` builds a runnable single-node DAG
+  (`start → work → done`) from a dispatch-pool task; `Workflow.Save` writes YAML
+  and re-validates by loading it back (a saved workflow must be runnable). The
+  work node carries the task's `run:` so execution, routing, and auto-capture
+  behave exactly as for hand-authored workflows. This is the bridge that lets a
+  pulled pool item reach the engine without YAML authoring (broker.md §4).
+- **Reject dossier (v0.5).** When the escalation budget is spent — both the
+  in-loop path (`failNode`) and the routing-reject path — the engine writes a
+  store-local accepted artifact (`kind: error`, tags `dossier` +
+  `reject:<runID>`) synthesized ONLY from evidence already collected: the tier
+  path from persisted `routing_decisions` (with verified context ids), and the
+  per-attempt transcript from `run_events`. It never runs new commands or
+  invents diagnosis. The human is the final tier and receives the same evidence
+  packet the router had. Read back via `ward reject <run>` / `ward explain`.
+  **Invariant:** the dossier must NOT carry the bare node id tag — an accepted,
+  local, node-tagged artifact would count as a memory hit for that node's
+  future runs, turning a failure transcript into fake knowledge. Covered by
+  `TestRejectDossierAndExplain`.
+- **Event log reader.** `Store.LoadEvents(runID)` returns ordered audit events;
+  `ward explain <run> [node]` joins decisions + events + live re-read context
+  status into one evidence chain (observer only — never feeds routing).
 
 ## Node semantics (carried)
 

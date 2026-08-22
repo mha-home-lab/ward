@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | Draft (v1 planning) |
+| Status | Implemented (v0.5: golden kind, tick --heal) |
 | Domain | verification |
-| Version | 0.1.0 |
+| Version | 0.5.0 |
 
 ## Purpose
 
@@ -51,7 +51,9 @@ model:
    artifact's recorded evidence (symbol present / hash / build green) to live
    repo state. A claim whose evidence no longer holds is `stale` — this is
    exactly the "validation was written but not wired in" case caught by a
-   `grep`/`build` check.
+   `grep`/`build` check. A previously-verified artifact that now fails is
+   stamped `stale` (not merely `error`) so drift is distinguishable from a
+   never-verified claim; `ward tick`/`brief` report it as **drift**.
 4. **Freshness TTL.** `verify_at` ages; a `verify_status` older than a
    configurable window (e.g. per-artifact `verify_ttl`) is treated as `unknown`
    and re-verified before routing trusts it. Prevents trusting a check from a
@@ -64,6 +66,21 @@ model:
    silently retire artifacts on a timer. flow.md's "queue for supersede" refers
    only to the verify trigger; blueprint.md's non-goal of no timer-based
    auto-supersede refers only to the TTL trigger.
+6. **`golden` verify kind (v0.5).** Format `<expected-file>::<command>`: run the
+   command, diff its stdout against the checked-in expected file (trailing
+   newlines normalized). "Done" can mean *the output is right*, not merely exit
+   0 or an input hash — verification that matches semantic completion. Same D0.3
+   trust boundary as every other kind (store-local artifacts only). A golden
+   mismatch on a previously-verified artifact is `stale`.
+7. **Self-healing ticks (v0.5) — resolves the auto-supersede open question.**
+   The question "flag-only vs auto-supersede" is resolved as **explicit operator
+   action**: plain `ward tick` only reports drift (diagnosis); `ward tick --heal`
+   supersedes any store-local accepted artifact whose live re-verification is
+   `stale`/`error`, with reason `drift` (treatment). Healing inspects post-sweep
+   statuses, so an artifact that failed on a previous tick is still healed — no
+   zombies persist across sweeps. It acts only on store-local artifacts (the
+   sweep already excludes imports), and supersede happens only after the real
+   re-run failed: never a status stamp without evidence.
 
 ## Flow integration
 
@@ -73,11 +90,9 @@ model:
 
 ## Open questions / risks
 
-- **Auto-supersede vs. flag-only.** When an `accepted` artifact goes `stale`,
-  should WARD auto-`supersede` it (mutating memory) or only flag it for human
-  review? Auto-supersede is non-lossy (record + reason survive) but may surprise
-  users. Proposal: flag in `verify` output + queue; auto-supersede only with
-  `--auto` or under `full` ceremony. Open.
+- **Auto-supersede vs. flag-only — RESOLVED (v0.5, item 7 above).** Flag in
+  `tick`/`brief` output by default; auto-supersede only under explicit
+  `--heal`. Non-lossy either way (reason `drift` recorded, handoff surfaces it).
 - **Who runs the shell command / sandboxing.** `verify_cmd` executes arbitrary
   shell in the repo. Must run in a sandbox or trusted dir; a malicious artifact
   could run arbitrary code on `verify`. Proposal: verify runs only on artifacts
