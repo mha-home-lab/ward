@@ -10,9 +10,15 @@ import (
 	"os/exec"
 )
 
-// TierModel maps a routing tier to a free opencode model. The router's own
-// model names (gemini-2.0-flash / gpt-4o-mini / gpt-4o) are illustrative;
-// execution translates the tier to a concrete free model here.
+// TierModel maps a routing tier to a concrete, free opencode model.
+//
+// Deliberate seam (not drift): the router picks an ABSTRACT tier
+// (cheap|mid|strong) and its own Model strings (gemini-2.0-flash / gpt-4o-mini /
+// gpt-4o) are illustrative of the tier's intent only. Execution is intentionally
+// decoupled from routing: this package is the single place where a tier becomes
+// a concrete (free, local) provider model. The two naming spaces must stay
+// separate so routing stays provider-agnostic — do not "fix" the router's model
+// names to match these, and do not route on opencode model strings directly.
 var TierModel = map[string]string{
 	"cheap":  "opencode/hy3-free",
 	"mid":    "opencode/mimo-v2.5-free",
