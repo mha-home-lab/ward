@@ -1,0 +1,36 @@
+name: oidc-login
+nodes:
+  - id: request
+    kind: channel
+    produces: []
+  - id: specification
+    kind: test
+    produces: ["docs/oidc-spec.md"]
+  - id: task-decomposition
+    kind: channel
+    produces: []
+  - id: approval
+    kind: approval
+    channels: [review]
+    produces: []
+  - id: implementation
+    kind: test
+    produces: ["internal/auth/login.go", "internal/auth/login_test.go"]
+  - id: testing
+    kind: test
+    produces: ["internal/auth/login_test.go"]
+  - id: review
+    kind: approval
+    channels: [review]
+    produces: []
+  - id: complete
+    kind: channel
+    produces: []
+edges:
+  - {from: request, to: specification}
+  - {from: specification, to: task-decomposition}
+  - {from: task-decomposition, to: approval}
+  - {from: approval, to: implementation}
+  - {from: implementation, to: testing}
+  - {from: testing, to: review}
+  - {from: review, to: complete}

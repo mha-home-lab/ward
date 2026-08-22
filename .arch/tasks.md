@@ -231,6 +231,13 @@ prove done, in the spirit of chef's `tasks.md`.
   - Cheap-failure escalation is capped (max 2 escalations/unit); `strong` failure
     terminates the unit (run `rejected` / route-to-human), no infinite loop.
   - `routing_decisions` rows record `contention_inputs` for hindsight audit.
+- **Implemented (v1 slice):** `internal/routing` is a pure function (no LLM call);
+  `ward route` shows signals + tier (verified 2026-08-22). `ward run` selects per
+  node via the router; `ward router --auto-approve` runs the OIDC workflow and
+  prints the measurement (cheap+verified success / escalated / stale-caught /
+  rejected). Contention escalates only between *unordered* DAG nodes (concurrent
+  candidates), not sequential overlap (the D0.1 false-positive trap). Escalation
+  budget (max 2) → `REJECT`. `routing_decisions.contention_inputs` JSON persisted.
 - **Depends on:** P2 (memory + verify_status real), P3 (`touched` sets + run_nodes),
   P4 (`verify_status` must be real before routing trusts it). D0.1, D0.2.
 
