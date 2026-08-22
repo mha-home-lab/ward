@@ -1,0 +1,19 @@
+name: parallel-demo
+nodes:
+  - id: start
+    kind: channel
+  - id: build-a
+    kind: test
+    produces: ["shared.go"]
+    run: "echo build-a shared.go"
+  - id: build-b
+    kind: test
+    produces: ["shared.go"]
+    run: "echo build-b shared.go"
+  - id: done
+    kind: channel
+edges:
+  - {from: start, to: build-a}
+  - {from: start, to: build-b}
+  - {from: build-a, to: done}
+  - {from: build-b, to: done}

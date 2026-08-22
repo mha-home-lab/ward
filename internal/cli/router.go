@@ -71,15 +71,18 @@ func routerCmd() *cobra.Command {
 			if err != nil {
 				return failErr(err)
 			}
+			eng := &orchestration.Engine{Store: s, AutoApprove: autoApprove}
+			// Seed goes through the LIVE verify path (verification.Run), never a
+			// stamped column. --seed greps README.md for "OIDC" (present -> verified);
+			// --seed-stale greps for a pattern that cannot match (live error -> not cheap).
 			if seed {
-				seedArtifact(s, "implementation", "test", "verified",
-					"OIDC login via OAuth2 authorization code grant implemented", "solution")
+				eng.Seed("implementation", "test", "solution",
+					"OIDC login via OAuth2 authorization code grant implemented", "OIDC::README.md", "grep")
 			}
 			if seedStale {
-				seedArtifact(s, "specification", "test", "stale",
-					"OIDC spec revision with PKCE required", "spec")
+				eng.Seed("specification", "test", "spec",
+					"OIDC spec revision with PKCE required", "ZZZNOPE::README.md", "grep")
 			}
-			eng := &orchestration.Engine{Store: s, RepoRoot: "", AutoApprove: autoApprove}
 			runID, err := eng.StartWorkflow(wf)
 			if err != nil {
 				return failErr(err)
@@ -117,24 +120,6 @@ func routerCmd() *cobra.Command {
 	c.Flags().BoolVar(&seedStale, "seed-stale", false, "seed a stale accepted artifact (capture path)")
 	c.Flags().BoolVar(&autoApprove, "auto-approve", false, "auto-approve approval nodes")
 	return c
-}
-
-func seedArtifact(s *store.Store, nodeID, kind, verifyStatus, summary, tagKind string) {
-	a := store.Artifact{
-		Kind: tagKind, Summary: summary, Content: "seeded for " + nodeID,
-		Tags:     []string{nodeID, kind},
-		Status:   "accepted", CreatedBy: "seed", Local: true,
-		VerifyKind: "grep", VerifyCmd: "OIDC::README.md", Ceremony: "light",
-	}
-	id, err := s.UpsertArtifact(a)
-	if err != nil {
-		return
-	}
-	if verifyStatus == "verified" {
-		_ = s.SetVerify(id, "verified")
-	} else {
-		_ = s.SetVerify(id, verifyStatus)
-	}
 }
 
 type measurement struct {

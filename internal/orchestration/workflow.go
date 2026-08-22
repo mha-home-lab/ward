@@ -20,6 +20,7 @@ type Node struct {
 	Kind     string   `yaml:"kind"` // channel | approval | test
 	Channels []string `yaml:"channels"`
 	Produces []string `yaml:"produces"` // agent-declared touched set (stand-in for D0.1)
+	Run      string   `yaml:"run"`      // optional shell command the node executes (real adapter)
 }
 
 type Edge struct {

@@ -221,17 +221,17 @@ func (s *Store) AddEvent(runID, action, node, detail string) error {
 func (s *Store) AddRoutingDecision(d RoutingDecision) error {
 	_, err := s.DB.Exec(`INSERT INTO routing_decisions
 		(run_id, node, tier, model, ceremony_level, memory_hit, verify_status,
-		 escalated_from, reason, contention_inputs, created_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		 contention, escalated_from, reason, contention_inputs, created_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 		d.RunID, d.Node, d.Tier, d.Model, d.Ceremony, boolInt(d.MemoryHit), d.VerifyStatus,
-		d.EscalatedFrom, d.Reason, d.ContentionJSON, d.CreatedAt)
+		boolInt(d.Contention), d.EscalatedFrom, d.Reason, d.ContentionJSON, d.CreatedAt)
 	return err
 }
 
 // RoutingDecisionsForRun returns all decisions for a run (for measurement).
 func (s *Store) RoutingDecisionsForRun(runID string) ([]RoutingDecision, error) {
 	rows, err := s.DB.Query(`SELECT run_id, node, tier, model, ceremony_level, memory_hit,
-		verify_status, escalated_from, reason, contention_inputs, created_at
+		verify_status, contention, escalated_from, reason, contention_inputs, created_at
 		FROM routing_decisions WHERE run_id=? ORDER BY created_at`, runID)
 	if err != nil {
 		return nil, err
@@ -240,12 +240,13 @@ func (s *Store) RoutingDecisionsForRun(runID string) ([]RoutingDecision, error) 
 	var out []RoutingDecision
 	for rows.Next() {
 		var d RoutingDecision
-		var mh int
+		var mh, con int
 		if err := rows.Scan(&d.RunID, &d.Node, &d.Tier, &d.Model, &d.Ceremony, &mh,
-			&d.VerifyStatus, &d.EscalatedFrom, &d.Reason, &d.ContentionJSON, &d.CreatedAt); err != nil {
+			&d.VerifyStatus, &con, &d.EscalatedFrom, &d.Reason, &d.ContentionJSON, &d.CreatedAt); err != nil {
 			return nil, err
 		}
 		d.MemoryHit = mh != 0
+		d.Contention = con != 0
 		out = append(out, d)
 	}
 	return out, nil

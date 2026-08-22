@@ -36,6 +36,9 @@ func Open() (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		return nil, err
+	}
 	s := &Store{DB: db, Home: home}
 	if err := s.Init(); err != nil {
 		return nil, err
@@ -128,6 +131,7 @@ type RoutingDecision struct {
 	Ceremony       string
 	MemoryHit      bool
 	VerifyStatus   string
+	Contention     bool
 	EscalatedFrom  string
 	Reason         string
 	ContentionJSON string
@@ -218,7 +222,7 @@ CREATE TABLE IF NOT EXISTS routing_decisions (
   run_id TEXT, node TEXT,
   tier TEXT, model TEXT, ceremony_level TEXT,
   memory_hit INTEGER, verify_status TEXT,
-  escalated_from TEXT, reason TEXT,
+  contention INTEGER, escalated_from TEXT, reason TEXT,
   contention_inputs TEXT,
   created_at TEXT NOT NULL
 );

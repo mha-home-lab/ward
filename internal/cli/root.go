@@ -22,7 +22,7 @@ func NewRoot() *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.PersistentFlags().BoolVar(&jsonOut, "json", false, "emit JSON instead of human text")
-	root.AddCommand(initCmd(), memoryCmd(), verifyCmd(), routeCmd(), routerCmd(), runCmd(), doctorCmd(), workflowCmd())
+	root.AddCommand(initCmd(), memoryCmd(), verifyCmd(), routeCmd(), routerCmd(), runCmd(), doctorCmd(), workflowCmd(), tickCmd())
 	return root
 }
 

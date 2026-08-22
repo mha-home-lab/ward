@@ -30,7 +30,7 @@ func Run(a store.Artifact, repoRoot string) Result {
 	}
 	switch a.VerifyKind {
 	case "grep":
-		return grep(a)
+		return grep(a, repoRoot)
 	case "build", "test", "shell":
 		return shell(a, repoRoot)
 	case "hash":
@@ -40,14 +40,17 @@ func Run(a store.Artifact, repoRoot string) Result {
 	}
 }
 
-func grep(a store.Artifact) Result {
+func grep(a store.Artifact, repoRoot string) Result {
 	pattern, path := split(a.VerifyCmd)
 	if pattern == "" || path == "" {
 		return Result{Status: "error", Detail: "grep verify_cmd must be 'pattern::path'"}
 	}
 	cmd := exec.Command("grep", "-rq", "--", pattern, path)
+	if repoRoot != "" {
+		cmd.Dir = repoRoot
+	}
 	if err := cmd.Run(); err != nil {
-		return fail(a, fmt.Sprintf("pattern %q not found in %s", pattern, path))
+		return fail(a, fmt.Sprintf("pattern %q not found in %s (repo=%s)", pattern, path, repoRoot))
 	}
 	return ok(a)
 }
@@ -78,14 +81,14 @@ func hash(a store.Artifact, repoRoot string) Result {
 	}
 	sum := sha256.Sum256(data)
 	got := hex.EncodeToString(sum[:])
-	// Expected hash stored in the artifact content (first line).
+	// Expected hash stored in the artifact content (first line). Without a
+	// stored baseline, drift cannot be detected, so we refuse to "verify".
 	expected := strings.TrimSpace(strings.SplitN(a.Content, "\n", 2)[0])
 	if expected == "" {
-		// No expected hash stored; record current hash as verified baseline.
-		return Result{Status: "verified", Detail: "hash baseline " + got}
+		return Result{Status: "error", Detail: "no expected hash stored in content (first line); drift detection disabled"}
 	}
 	if expected != got {
-		return fail(a, fmt.Sprintf("hash mismatch expected=%s got=%s", a.VerifyKind, got))
+		return fail(a, fmt.Sprintf("hash drift expected=%s got=%s", expected, got))
 	}
 	return ok(a)
 }

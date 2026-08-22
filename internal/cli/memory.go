@@ -30,17 +30,17 @@ func initCmd() *cobra.Command {
 }
 
 func memoryCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "memory", Short: "agent memory store (put/search/list/promote/handoff)"}
-	cmd.AddCommand(memoryPutCmd(), memorySearchCmd(), memoryListCmd(), memoryPromoteCmd(), memoryHandoffCmd())
+	cmd := &cobra.Command{Use: "memory", Short: "agent memory store (put/get/search/list/promote/supersede/handoff)"}
+	cmd.AddCommand(memoryPutCmd(), memoryGetCmd(), memorySearchCmd(), memoryListCmd(), memoryPromoteCmd(), memorySupersedeCmd(), memoryHandoffCmd())
 	return cmd
 }
 
 func memoryPutCmd() *cobra.Command {
-	var kind, summary, content, tags, verifyCmd, verifyKind, project, by string
+	var kind, summary, content, tags, verifyCmd, verifyKind, project, by, ceremony string
 	var imported bool
 	c := &cobra.Command{
 		Use:   "put",
-		Short: "store a memory artifact",
+		Short: "store a memory artifact (light ceremony auto-accepts)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
@@ -53,20 +53,28 @@ func memoryPutCmd() *cobra.Command {
 			if kind == "" {
 				kind = "context"
 			}
+			if ceremony == "" {
+				ceremony = "light"
+			}
 			a := store.Artifact{
 				Kind: kind, Summary: summary, Content: content,
 				Tags:  splitCSV(tags), Status: "proposed",
 				CreatedBy: by, Project: project,
-				VerifyCmd: verifyCmd, VerifyKind: verifyKind, Local: !imported, Ceremony: "light",
+				VerifyCmd: verifyCmd, VerifyKind: verifyKind, Local: !imported, Ceremony: ceremony,
 			}
 			id, err := s.UpsertArtifact(a)
 			if err != nil {
 				return failErr(err)
 			}
+			// Light ceremony auto-accepts (spec). Auto-accepted but unverified
+			// artifacts still cannot vote cheap until live-verified.
+			if ceremony == "light" {
+				_, _ = s.Promote([]string{id}, "auto-accept (light ceremony)", by)
+			}
 			if jsonOut {
-				printJSON(map[string]string{"id": id, "status": "proposed"})
+				printJSON(map[string]string{"id": id, "status": "accepted", "ceremony": ceremony})
 			} else {
-				printLine("stored " + id + " (proposed)")
+				printLine("stored " + id + " (accepted, " + ceremony + ")")
 			}
 			return nil
 		},
@@ -79,7 +87,70 @@ func memoryPutCmd() *cobra.Command {
 	c.Flags().StringVar(&verifyKind, "verify-kind", "", "shell|grep|build|test|hash")
 	c.Flags().StringVar(&project, "project", "", "project namespace")
 	c.Flags().StringVar(&by, "by", "agent", "creator name")
+	c.Flags().StringVar(&ceremony, "ceremony", "light", "light (auto-accept) | full")
 	c.Flags().BoolVar(&imported, "imported", false, "mark as imported (not store-local; verify not executed)")
+	return c
+}
+
+func memoryGetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "get <id>",
+		Short: "show one artifact by id",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return failErr(errNeedID)
+			}
+			s, err := store.Open()
+			if err != nil {
+				return failErr(err)
+			}
+			defer s.DB.Close()
+			a, err := s.GetArtifact(args[0])
+			if err != nil {
+				return failErr(err)
+			}
+			if jsonOut {
+				printJSON(a)
+			} else {
+				printLine(fmt.Sprintf("[%s] %s %s", a.ID, a.Kind, a.Summary))
+				printLine(fmt.Sprintf("  status=%s verify=%s local=%v tags=%v", a.Status, a.VerifyStatus, a.Local, a.Tags))
+				printLine("  " + a.Content)
+			}
+			return nil
+		},
+	}
+}
+
+func memorySupersedeCmd() *cobra.Command {
+	var with, reason string
+	c := &cobra.Command{
+		Use:   "supersede <id>",
+		Short: "mark an artifact superseded (optionally by a successor id)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return failErr(errNeedID)
+			}
+			s, err := store.Open()
+			if err != nil {
+				return failErr(err)
+			}
+			defer s.DB.Close()
+			if reason == "" {
+				reason = "superseded"
+			}
+			if err := s.Supersede(args[0], with, reason); err != nil {
+				return failErr(err)
+			}
+			if jsonOut {
+				printJSON(map[string]string{"id": args[0], "superseded_by": with, "status": "ok"})
+			} else {
+				printLine("superseded " + args[0] + " by " + with)
+			}
+			return nil
+		},
+	}
+	c.Flags().StringVar(&with, "with", "", "successor artifact id")
+	c.Flags().StringVar(&reason, "reason", "", "why superseded")
 	return c
 }
 
@@ -191,7 +262,7 @@ func memoryHandoffCmd() *cobra.Command {
 	var incomplete bool
 	c := &cobra.Command{
 		Use:   "handoff",
-		Short: "produce a handoff artifact (incomplete work for the next agent)",
+		Short: "produce a structured handoff of incomplete work for the next agent",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
@@ -215,22 +286,36 @@ func memoryHandoffCmd() *cobra.Command {
 					runViews = append(runViews, rv)
 				}
 			}
-			if jsonOut {
-				printJSON(map[string]any{
-					"incomplete":     incomplete,
-					"proposed_count": len(proposed),
-					"proposed":       proposed,
-					"stale_count":    len(stale),
-					"stale":          stale,
-					"open_runs":      runViews,
+			var items []map[string]any
+			for _, p := range proposed {
+				items = append(items, map[string]any{
+					"id": p.ID, "summary": p.Summary, "files": p.Tags,
+					"why": "proposed (not promoted)", "attempted_at": p.CreatedAt,
 				})
+			}
+			for _, st := range stale {
+				items = append(items, map[string]any{
+					"id": st.ID, "summary": st.Summary, "files": st.Tags,
+					"why": "stale (not re-verified)", "attempted_at": st.CreatedAt,
+				})
+			}
+			for _, r := range runViews {
+				items = append(items, map[string]any{
+					"id": r.ID, "summary": "run " + r.Workflow, "files": []string{},
+					"why": "open run: " + r.Status + " waiting=" + r.Waiting, "attempted_at": "",
+				})
+			}
+			handoff := map[string]any{
+				"incomplete": incomplete,
+				"summary":    fmt.Sprintf("%d proposed, %d stale, %d open runs", len(proposed), len(stale), len(runViews)),
+				"items":     items,
+			}
+			if jsonOut {
+				printJSON(handoff)
 			} else {
-				printLine(fmt.Sprintf("proposed: %d  stale: %d  open_runs: %d", len(proposed), len(stale), len(runViews)))
-				for _, p := range proposed {
-					printLine("  proposed: " + p.ID + " " + p.Summary)
-				}
-				for _, r := range runViews {
-					printLine("  run: " + r.ID + " " + r.Status + " waiting=" + r.Waiting)
+				printLine(fmt.Sprintf("incomplete=%v  %s", incomplete, handoff["summary"]))
+				for _, it := range items {
+					printLine(fmt.Sprintf("  [%s] %v — %v", it["id"], it["why"], it["summary"]))
 				}
 			}
 			return nil
@@ -242,18 +327,46 @@ func memoryHandoffCmd() *cobra.Command {
 
 func verifyCmd() *cobra.Command {
 	var repo string
+	var trust, all bool
 	c := &cobra.Command{
 		Use:   "verify <id>",
 		Short: "run an artifact's verify_cmd (only for store-local artifacts)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return failErr(errNeedID)
-			}
 			s, err := store.Open()
 			if err != nil {
 				return failErr(err)
 			}
 			defer s.DB.Close()
+			if all {
+				allArt, _ := s.ListArtifacts("", "", "", 1000)
+				var out []map[string]string
+				for _, a := range allArt {
+					if !a.Local {
+						continue
+					}
+					r := verification.Run(a, repo)
+					_ = s.SetVerify(a.ID, r.Status)
+					out = append(out, map[string]string{"id": a.ID, "status": r.Status, "detail": r.Detail})
+				}
+				if jsonOut {
+					printJSON(out)
+				} else {
+					for _, o := range out {
+						printLine(fmt.Sprintf("%s -> %s: %s", o["id"], o["status"], o["detail"]))
+					}
+				}
+				return nil
+			}
+			if len(args) == 0 {
+				return failErr(errNeedID)
+			}
+			if trust {
+				// --trust promotes an imported artifact to store-local so its
+				// verify_cmd may execute (explicit trust boundary crossing).
+				if err := s.SetLocal(args[0]); err != nil {
+					return failErr(err)
+				}
+			}
 			a, err := s.GetArtifact(args[0])
 			if err != nil {
 				return failErr(err)
@@ -271,6 +384,8 @@ func verifyCmd() *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&repo, "repo", "", "repo root for shell/build/test/hash verification")
+	c.Flags().BoolVar(&trust, "trust", false, "mark an imported artifact as trusted (local) before verifying")
+	c.Flags().BoolVar(&all, "all", false, "verify all store-local artifacts and persist results")
 	return c
 }
 

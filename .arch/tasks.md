@@ -231,13 +231,28 @@ prove done, in the spirit of chef's `tasks.md`.
   - Cheap-failure escalation is capped (max 2 escalations/unit); `strong` failure
     terminates the unit (run `rejected` / route-to-human), no infinite loop.
   - `routing_decisions` rows record `contention_inputs` for hindsight audit.
-- **Implemented (v1 slice):** `internal/routing` is a pure function (no LLM call);
-  `ward route` shows signals + tier (verified 2026-08-22). `ward run` selects per
-  node via the router; `ward router --auto-approve` runs the OIDC workflow and
-  prints the measurement (cheap+verified success / escalated / stale-caught /
-  rejected). Contention escalates only between *unordered* DAG nodes (concurrent
-  candidates), not sequential overlap (the D0.1 false-positive trap). Escalation
-  budget (max 2) → `REJECT`. `routing_decisions.contention_inputs` JSON persisted.
+- **Implemented (v1 slice):**
+  - `internal/routing` is a pure function (no LLM call); `ward route` shows signals + tier.
+  - **Verify is a live gate, not a stored column (thesis fix 2026-08-22):** the
+    engine runs `verification.Run` against the repo *before* every `Route` call
+    and persists the result; only `status=="verified"` counts as a memory hit.
+    `ward router --seed` goes through this path (greps README.md for "OIDC");
+    `ward router --seed-stale` greps a pattern that cannot match, so cheap does
+    NOT fire. Covered by `engine_test.go` (passing vs failing live grep).
+  - `ward run` selects per node via the router; nodes with a `run:` shell command
+    are **executed** by the engine (real adapter). `ward router
+    --workflow workflows/parallel-demo.yaml --auto-approve` shows two unordered
+    siblings sharing a file → `build-b` escalates to `strong`/`full` (contention
+    between *unordered* nodes only — the D0.1 false-positive trap).
+  - Escalation budget (max 2) → `REJECT`. `routing_decisions` records
+    `contention` + `contention_inputs` JSON for hindsight audit.
+  - `memory put` light ceremony auto-accepts; `memory get`/`supersede`, `verify
+    --all`/`--trust`, structured `handoff --incomplete`, and `tick` (drift sweep)
+    implemented. `go.mod` deps direct; `PRAGMA journal_mode=WAL` on open.
+  - Table tests: `routing_test.go` (Route truth table), `workflow_test.go`
+    (Validate: cycle / two roots / approval-without-channel), `verify_test.go`
+    (local vs imported, hash drift), `engine_test.go` (live verify-on-read,
+    contention on unordered siblings).
 - **Depends on:** P2 (memory + verify_status real), P3 (`touched` sets + run_nodes),
   P4 (`verify_status` must be real before routing trusts it). D0.1, D0.2.
 

@@ -3,12 +3,15 @@ package orchestration
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/mha-home-lab/ward/internal/observe"
 	"github.com/mha-home-lab/ward/internal/routing"
 	"github.com/mha-home-lab/ward/internal/store"
+	"github.com/mha-home-lab/ward/internal/verification"
 )
 
 // Engine runs workflows, persists run state, and applies the pure router.
@@ -111,7 +114,8 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 	_ = e.Store.AddRoutingDecision(store.RoutingDecision{
 		RunID: runID, Node: nodeID, Tier: string(dec.Tier), Model: dec.Model,
 		Ceremony: dec.Ceremony, MemoryHit: dec.MemoryHit, VerifyStatus: dec.Verify,
-		Reason: dec.Reason, ContentionJSON: string(cj), CreatedAt: store.NowISO(),
+		Contention: contention, Reason: dec.Reason, ContentionJSON: string(cj),
+		CreatedAt: store.NowISO(),
 	})
 	_ = e.Store.UpsertRunNode(store.RunNode{
 		RunID: runID, Node: nodeID, Status: "running", Ceremony: dec.Ceremony, UpdatedAt: store.NowISO(),
@@ -128,6 +132,21 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 		return true, nil
 	}
 
+	// Non-approval (or auto-approved) node: if it carries a `run` command, this
+	// is the REAL adapter — execute it against the repo (this is what makes the
+	// DAG actually do work, not just record a routing decision).
+	if node.Run != "" {
+		out, rerr := execShell(node.Run, e.repo())
+		detail := "exec ok"
+		if rerr != nil {
+			detail = "exec failed: " + rerr.Error()
+		}
+		if len(out) > 0 {
+			detail += " | " + truncate(string(out), 200)
+		}
+		_ = e.Store.AddEvent(runID, "exec", nodeID, detail)
+	}
+
 	// Non-approval (or auto-approved) node: mark done, persist declared touched,
 	// and record the git-diff OBSERVATION (never a routing input — D0.1).
 	obs := e.observe(node)
@@ -140,8 +159,10 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 	return false, nil
 }
 
-// memoryHitForNode returns whether a verified (or at least accepted) prior
-// solution exists in the store for this node.
+// memoryHitForNode returns whether a VERIFIED prior solution exists for this
+// node. The thesis: an artifact may not vote for cheap until it matches current
+// repo state. So before trusting, we run verification.Run LIVE against the repo
+// and persist the result. Only status=="verified" counts as a real hit.
 func (e *Engine) memoryHitForNode(node Node) (bool, string) {
 	cands := map[string]store.Artifact{}
 	for _, q := range []string{node.ID, node.Kind} {
@@ -152,21 +173,57 @@ func (e *Engine) memoryHitForNode(node Node) (bool, string) {
 			}
 		}
 	}
+	// Only artifacts explicitly tagged with this exact node id count. The loose
+	// "any accepted artifact of the same kind" fallback caused false hits.
+	bestStatus := ""
 	for _, a := range cands {
 		if a.Status != "accepted" {
 			continue
 		}
-		if strings.Contains(a.Summary, node.ID) || hasTag(a.Tags, node.ID) {
-			return true, a.VerifyStatus
+		if !hasTag(a.Tags, node.ID) {
+			continue
 		}
+		// LIVE gate: verify against the repo right now, then persist.
+		res := verification.Run(a, e.repo())
+		_ = e.Store.SetVerify(a.ID, res.Status)
+		if res.Status == "verified" {
+			return true, "verified"
+		}
+		bestStatus = res.Status
 	}
-	// fall back to any accepted artifact of the same kind
-	for _, a := range cands {
-		if a.Status == "accepted" && a.Kind == node.Kind {
-			return true, a.VerifyStatus
-		}
+	if bestStatus != "" {
+		// accepted but not currently verified: a hit, but it cannot vote cheap.
+		return true, bestStatus
 	}
 	return false, "unknown"
+}
+
+// repo returns the configured repo root, defaulting to the process cwd.
+func (e *Engine) repo() string {
+	if e.RepoRoot != "" {
+		return e.RepoRoot
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return ""
+}
+
+// Seed creates an accepted artifact and runs its verify_cmd LIVE (never stamps
+// a status). The resulting verify_status is whatever the repo actually says.
+func (e *Engine) Seed(nodeID, kind, tagKind, summary, verifyCmd, verifyKind string) {
+	a := store.Artifact{
+		Kind: tagKind, Summary: summary, Content: "seeded for " + nodeID,
+		Tags:       []string{nodeID, kind},
+		Status:     "accepted", CreatedBy: "seed", Local: true,
+		VerifyKind: verifyKind, VerifyCmd: verifyCmd, Ceremony: "light",
+	}
+	id, err := e.Store.UpsertArtifact(a)
+	if err != nil {
+		return
+	}
+	res := verification.Run(a, e.repo())
+	_ = e.Store.SetVerify(id, res.Status)
 }
 
 func hasTag(tags []string, v string) bool {
@@ -211,18 +268,36 @@ func overlap(a, b []string) bool {
 }
 
 // observe records declared-vs-git-diff as an OBSERVATION ONLY (D0.1 evidence).
-// It never feeds back into routing.
+// It logs BOTH sets (not just counts) so under-declaration is visible. It never
+// feeds back into routing.
 func (e *Engine) observe(node Node) string {
 	changed := []string{}
-	if e.RepoRoot != "" {
-		if f, err := observe.GitChangedFiles(e.RepoRoot); err == nil {
+	if r := e.repo(); r != "" {
+		if f, err := observe.GitChangedFiles(r); err == nil {
 			changed = append(changed, f...)
 		}
-		if f, err := observe.GitUntracked(e.RepoRoot); err == nil {
+		if f, err := observe.GitUntracked(r); err == nil {
 			changed = append(changed, f...)
 		}
 	}
-	return fmt.Sprintf("declared=%d observed_git=%d", len(node.Produces), len(changed))
+	b, _ := json.Marshal(map[string]any{"declared": node.Produces, "observed": changed})
+	return string(b)
+}
+
+// execShell runs a node's `run` command in the repo root (the real adapter).
+func execShell(cmd, repo string) ([]byte, error) {
+	c := exec.Command("sh", "-c", cmd)
+	if repo != "" {
+		c.Dir = repo
+	}
+	return c.CombinedOutput()
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 func (e *Engine) doneMap(runID string) (map[string]bool, error) {
