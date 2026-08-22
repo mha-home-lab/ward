@@ -317,3 +317,57 @@ A phase is done when:
 - `storage.md`, `memory.md`, `orchestration.md`, `routing.md`, `verification.md`,
   `cli.md` — the per-domain contracts implemented by P1–P7.
 - chef `.specs/tasks.md` — granularity/format convention followed here.
+
+---
+
+## v0.1.0 — FROZEN (tagged 2026-08-22)
+
+The three thesis invariants hold in the **engine**, not just the spec:
+
+1. Memory cannot vote cheap unless the repo currently matches (live verify-on-read).
+2. Failed `run:` is `failed`, never `done` (escalates cheap→mid→strong→human, cap 2).
+3. Two escalations, then a human.
+
+Additive SQLite migrations (`ALTER` + `user_version = 2`, skip-if-present);
+`resume`/`approve` reload the originating workflow (no silent `oidc-login.yaml`
+fallback); `workflows/fail-demo.yaml` and `workflows/go-test-demo.yaml` shipped.
+
+**Do not start B. Do not extend the engine until v0.2 evidence exists.**
+
+## v0.2 backlog (tracked, not for v0.1)
+
+### B — Result capture (the real v0.2, not an engine bug)
+
+`go-test-demo.yaml` runs `go test` then `grep` as **work**; it does not
+`UpsertArtifact` on success. Cheap on `verify` only happens if something was
+already `put`/`Seed`ed and tagged `verify` (done by hand during "use it").
+The flow.md step-7 write-back loop is still manual. "Never re-solve" is a read
+path with a human on the write path — acceptable for v0.1.
+
+```
+on run: success
+  → put accepted artifact
+  → attach verify_cmd (grep/hash/test)
+  → next session live-verifies it
+  → only then may it vote cheap
+```
+
+Trigger: use WARD on a repo that is not WARD; if result-capture is painful,
+that is the evidence to start B. Do NOT start B speculatively.
+
+### Leftovers (track, do not fix now)
+
+- **`TestMigrationFromV1` tests the wrong era.** It opens a fresh DB (columns
+  already added), rewinds `user_version` to 1, reopens — the *b9bbe1d*
+  skip-if-present case. The *aadb0dc* case is tables **without** those columns;
+  `addColumn` should handle it but the test never builds that schema. ~10 lines,
+  next time store is touched.
+- **Resume overwrite has no regression test.** `resolveRunWF` is the fix; nothing
+  asserts a second `Engine` reloads `workflow_path` instead of the default YAML.
+- **`produces: ["*.go"]` is a literal, not a glob.** Harmless until contention
+  cares about the declared touched set.
+- **`go-test-demo` `verify` node is a `run: grep`, not `verification.Run` on an
+  artifact.** The naming will confuse the next reader.
+
+None of these reopen the thesis.
+
