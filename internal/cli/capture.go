@@ -82,11 +82,17 @@ func captureNode(s *store.Store, wf *orchestration.Workflow, node orchestration.
 // produces are expanded to a concrete file; a hash of a glob is meaningless).
 func inferVerify(node orchestration.Node, summary, contentOverride string) (string, string, string) {
 	if node.Run != "" {
+		// The node's own run: IS the work that succeeded, so it is the most
+		// honest verify_cmd. A grep node captures "grep ...", not go test.
+		kind := "shell"
+		if strings.Contains(node.Run, "go test") {
+			kind = "test"
+		}
 		c := contentOverride
 		if c == "" {
 			c = fmt.Sprintf("Auto-captured result of node %s after successful run (ran: %s).", node.ID, node.Run)
 		}
-		return node.Run, "shell", c
+		return node.Run, kind, c
 	}
 	if node.Kind == "test" {
 		c := contentOverride

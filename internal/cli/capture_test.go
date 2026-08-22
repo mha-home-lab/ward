@@ -37,8 +37,8 @@ func TestCaptureNodeDefaultsTagAndInfersVerify(t *testing.T) {
 	if len(a.Tags) != 1 || a.Tags[0] != "impl" {
 		t.Fatalf("default tag must be the node id, got %v", a.Tags)
 	}
-	if a.VerifyCmd != "go test ./..." || a.VerifyKind != "shell" {
-		t.Fatalf("test node with run: must capture its run: as shell verify, got %q/%q", a.VerifyCmd, a.VerifyKind)
+	if a.VerifyCmd != "go test ./..." || a.VerifyKind != "test" {
+		t.Fatalf("test node with run: go test must capture it as test verify, got %q/%q", a.VerifyCmd, a.VerifyKind)
 	}
 	if a.Status != "accepted" || a.Ceremony != "light" {
 		t.Fatalf("capture must be accepted/light, got %s/%s", a.Status, a.Ceremony)
