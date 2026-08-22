@@ -45,9 +45,22 @@ work. A failed `go test` is a first-class failure: the node is marked failed
 1. `ward brief [topic]` — one command at session start. It live-verifies every
    local claim, frees expired reservations, then reports prior knowledge, open
    runs, active claims, and imperative next actions (`--json` for machines).
-2. Work through a workflow (`ward run start/resume/approve`). Successes are
-   captured automatically as verified artifacts; failures escalate and stop.
-3. `ward memory handoff` before ending so the next session inherits state.
+2. Work arrives either as a workflow (`ward run start`) or through the dispatch
+   pool: `ward task add "fix login redirect" --tier mid --run "go test ./..."`
+   creates a claimable item; `ward task next --by agent-3 --max-tier mid`
+   atomically pulls the highest-floor item the agent's budget admits. Failure
+   bumps the floor one tier so a more capable agent picks it up; past `strong`
+   it is rejected for a human — never looped.
+3. Successes are captured automatically as verified artifacts; failures
+   escalate and stop. Rejected runs leave a **dossier** (`ward reject <run>`):
+   tier path taken, each attempt's outcome, verified context available.
+4. `ward tick --heal` closes the knowledge loop: drifted artifacts that fail
+   their live re-verification are superseded on the spot, so the store never
+   rots silently.
+5. `ward explain <run> [node]` reconstructs any routing decision's evidence
+   chain — which artifacts counted, their verify status re-checked now, every
+   attempt's transcript. Auditability is what makes the gate believable.
+6. `ward memory handoff` before ending so the next session inherits state.
 
 Nothing above requires human babysitting: the protocol ships inside the repo,
 the store carries the state, and `brief` tells each new session exactly where
@@ -85,15 +98,28 @@ own work product.
 - `ward init [--scaffold] [--docs] [--no-agents-md]` — create the store and
   inject the agent protocol; `--scaffold` writes `workflows/default.yaml`;
   `--docs` writes spec skeletons.
+- `ward task <add|next|list|done|fail|workflow>` — the dispatch pool: claimable
+  work items with tier-floor admission control and atomic pull.
 - `ward memory <put|get|search|list|promote|supersede|handoff|context|stale|claim>`
   — the agent memory store. `ward memory claim add <topic>` is an **exclusive**
   reservation: one active claim per topic+project; a conflict is a hard error.
 - `ward route <node>` / `ward router [--workflow]` — introspect the router.
 - `ward run <start|status|approve|resume>` — workflow lifecycle.
-- `ward tick` — re-verify local artifacts live, free expired claims, report drift.
+- `ward explain <run> [node]` — reconstruct a routing decision's evidence chain.
+- `ward reject <run>` — show the reject dossier (tier path, attempts, context).
+- `ward tick [--heal]` — re-verify local artifacts live; `--heal` supersedes
+  drift instead of only reporting it. Frees expired claims either way.
 - `ward doctor` — store + environment health (including `legacy_claims`).
 - `ward version`, `ward completion <shell>` — plumbing (cobra completions).
 - Every command supports `--json` and emits one-line errors.
+
+### Verification kinds
+
+`shell`, `build`, `test`, `grep pattern::path`, `hash algo::path`, and
+`golden expected-file::command` — golden diffs a command's output against a
+checked-in expected file (trailing newlines normalized), so "done" can mean
+*the output is right*, not merely *the command exited 0*. All kinds execute
+only for store-local artifacts, per the trust boundary above.
 
 ## Internals / demo
 

@@ -35,9 +35,42 @@ func Run(a store.Artifact, repoRoot string) Result {
 		return shell(a, repoRoot)
 	case "hash":
 		return hash(a, repoRoot)
+	case "golden":
+		return golden(a, repoRoot)
 	default:
 		return Result{Status: "unknown", Detail: "unknown verify_kind " + a.VerifyKind}
 	}
+}
+
+// golden diffs a command's output against a checked-in expected file. VerifyCmd
+// format: "<expected-file>::<command>". This is verification that matches
+// semantic "done" (output equality), not just exit codes or input hashes.
+// Trailing newlines are normalized so editors don't cause false drift.
+func golden(a store.Artifact, repoRoot string) Result {
+	expectedPath, command := split(a.VerifyCmd)
+	if expectedPath == "" || command == "" {
+		return Result{Status: "error", Detail: "golden verify_cmd must be 'expected-file::command'"}
+	}
+	full := expectedPath
+	if repoRoot != "" && !filepath.IsAbs(expectedPath) {
+		full = filepath.Join(repoRoot, expectedPath)
+	}
+	want, err := os.ReadFile(full)
+	if err != nil {
+		return fail(a, fmt.Sprintf("cannot read golden file %s: %v", expectedPath, err))
+	}
+	cmd := exec.Command("sh", "-c", command)
+	if repoRoot != "" {
+		cmd.Dir = repoRoot
+	}
+	got, err := cmd.Output()
+	if err != nil {
+		return fail(a, fmt.Sprintf("command failed: %v", err))
+	}
+	if strings.TrimRight(string(got), "\n") != strings.TrimRight(string(want), "\n") {
+		return fail(a, fmt.Sprintf("output differs from golden file %s", expectedPath))
+	}
+	return ok(a)
 }
 
 func grep(a store.Artifact, repoRoot string) Result {

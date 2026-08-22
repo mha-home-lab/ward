@@ -91,7 +91,28 @@ func (s *Store) migrate() error {
 	if _, err := s.DB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uni_claim_topic ON artifacts(claim_topic, project)"); err != nil {
 		return err
 	}
-	_, err := s.DB.Exec("PRAGMA user_version = 3")
+	// v3 -> v4: the dispatch pool. Tasks are claimable work items; the pool is
+	// what turns tier routing into a fleet lever (admission = agent budget vs
+	// task floor, atomicity = conditional UPDATE on status='open').
+	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS tasks (
+		id TEXT PRIMARY KEY,
+		title TEXT NOT NULL,
+		kind TEXT DEFAULT 'default',
+		tier_floor TEXT DEFAULT 'mid',
+		tier_rank INTEGER DEFAULT 1,
+		status TEXT NOT NULL DEFAULT 'open',
+		claimed_by TEXT,
+		claimed_at TEXT,
+		workflow_path TEXT,
+		verify_cmd TEXT,
+		run TEXT,
+		escalation INTEGER DEFAULT 0,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`); err != nil {
+		return err
+	}
+	_, err := s.DB.Exec("PRAGMA user_version = 4")
 	return err
 }
 

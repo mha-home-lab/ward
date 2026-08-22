@@ -3,7 +3,9 @@ package orchestration
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -172,6 +174,45 @@ func LoadWorkflow(path string) (*Workflow, error) {
 	}
 	w.Path = path
 	return &w, nil
+}
+
+// Save writes the workflow as YAML to path (mkdir -p), then re-validates what
+// was written by loading it back — a saved workflow must be runnable.
+func (w *Workflow) Save(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(w)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return err
+	}
+	_, err = LoadWorkflow(path)
+	return err
+}
+
+// TaskWorkflow generates a runnable single-node DAG from a dispatch-pool task:
+// start -> work -> done. The work node carries the task's run command (if any)
+// and its declared tier floor, so executing it routes exactly like any other
+// node while auto-capture records the result.
+func TaskWorkflow(taskID, title, kind, run, verifyCmd string) *Workflow {
+	if kind == "" || kind == "channel" {
+		kind = "default"
+	}
+	work := Node{ID: "work", Kind: kind}
+	if run != "" {
+		work.Run = run
+	} else if verifyCmd != "" && kind == "test" {
+		work.Run = verifyCmd
+	}
+	w := &Workflow{
+		Name:  "task-" + strings.TrimPrefix(taskID, "task-"),
+		Nodes: []Node{{ID: "start", Kind: "channel"}, work, {ID: "done", Kind: "channel"}},
+		Edges: []Edge{{From: "start", To: "work"}, {From: "work", To: "done"}},
+	}
+	return w
 }
 
 // Reachable returns the set of nodes reachable from `from` via directed edges

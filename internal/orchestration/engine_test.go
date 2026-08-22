@@ -225,7 +225,7 @@ func TestEngineRunFailureEscalates(t *testing.T) {
 	seeded, _ := eng.Store.SearchArtifacts("work", "", "", 5)
 	seedID := ""
 	for _, a := range seeded {
-		if a.Status == "accepted" {
+		if a.Status == "accepted" && a.CreatedBy == "seed" {
 			seedID = a.ID
 		}
 	}

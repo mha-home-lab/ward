@@ -113,7 +113,8 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 	ctxJSON, _ := json.Marshal(verifiedIDs)
 	if dec.Reject {
 		// Escalation budget exhausted: do not mark done. The run is rejected /
-		// routes to a human.
+		// routes to a human — with a dossier, so the human inherits the
+		// evidence packet instead of a bare status string.
 		_ = e.Store.UpsertRunNode(store.RunNode{
 			RunID: runID, Node: nodeID, Status: "failed", Escalation: esc, UpdatedAt: store.NowISO(),
 		})
@@ -121,6 +122,7 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 			ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO(),
 		})
 		_ = e.Store.AddEvent(runID, "reject", nodeID, dec.Reason)
+		e.WriteDossier(runID, nodeID)
 		return true, nil
 	}
 	cj, _ := json.Marshal(map[string]any{"overlaps": overlaps, "node_touched": node.Produces})
@@ -205,6 +207,7 @@ func (e *Engine) failNode(runID string, wf *Workflow, nodeID string, esc int, es
 			ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO(),
 		})
 		_ = e.Store.AddEvent(runID, "reject", nodeID, "escalation budget exhausted (max 2): "+reason)
+		e.WriteDossier(runID, nodeID)
 		return true, nil
 	}
 	escal[nodeID] = newEsc
@@ -213,6 +216,70 @@ func (e *Engine) failNode(runID string, wf *Workflow, nodeID string, esc int, es
 	})
 	_ = e.Store.AddEvent(runID, "escalate", nodeID, fmt.Sprintf("%s; retry at higher tier (attempt %d/3)", reason, newEsc+1))
 	return false, nil // not paused -> Run re-picks this node and re-routes
+}
+
+// WriteDossier synthesizes the reject dossier from evidence ALREADY COLLECTED:
+// the run's event log (each attempt's outcome), the tier path taken from the
+// persisted routing decisions, and the verified context that was available. It
+// never runs new commands or invents diagnosis — a faithful transcript plus the
+// recommendation to involve a human. The dossier is itself a store-local,
+// accepted artifact tagged `reject:<runID>`, so the next session finds it via
+// memory context like any other fact.
+func (e *Engine) WriteDossier(runID, nodeID string) {
+	events, err := e.Store.LoadEvents(runID)
+	if err != nil {
+		return
+	}
+	decs, err := e.Store.RoutingDecisionsForRun(runID)
+	if err != nil {
+		return
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "REJECTED: run %s node %s — escalation budget exhausted; needs a human.\n\n", runID, nodeID)
+	b.WriteString("Tier path taken:\n")
+	for _, d := range decs {
+		if d.Node != nodeID {
+			continue
+		}
+		fmt.Fprintf(&b, "  attempt -> tier=%s model=%s hit=%v verify=%s (%s)\n",
+			d.Tier, d.Model, d.MemoryHit, d.VerifyStatus, d.Reason)
+		if ids := contextIDsOf(d.Context); len(ids) > 0 {
+			fmt.Fprintf(&b, "    verified context available: %s\n", strings.Join(ids, ", "))
+		} else {
+			b.WriteString("    no verified context was available for this attempt\n")
+		}
+	}
+	b.WriteString("\nAttempt transcript:\n")
+	for _, ev := range events {
+		if ev.Node != nodeID {
+			continue
+		}
+		fmt.Fprintf(&b, "  [%s] %s: %s\n", ev.At, ev.Action, ev.Detail)
+	}
+	a := store.Artifact{
+		Kind:      "error",
+		Summary:   fmt.Sprintf("REJECT run %s node %s: escalation budget spent, human needed", runID, nodeID),
+		Content:   b.String(),
+		Tags:      []string{"dossier", "reject:" + runID},
+		Status:    "accepted",
+		CreatedBy: "ward",
+		Local:     true,
+		Ceremony:  "light",
+	}
+	_, _ = e.Store.UpsertArtifact(a)
+}
+
+// contextIDsOf parses the persisted context JSON of a decision.
+func contextIDsOf(ctxJSON string) []string {
+	ctxJSON = strings.TrimSpace(ctxJSON)
+	if ctxJSON == "" || ctxJSON == "null" || ctxJSON == "[]" {
+		return nil
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(ctxJSON), &ids); err != nil {
+		return nil
+	}
+	return ids
 }
 
 // memoryHitForNode returns whether a VERIFIED prior solution exists for this

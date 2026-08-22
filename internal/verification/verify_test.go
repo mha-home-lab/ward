@@ -63,6 +63,38 @@ func TestRunShell(t *testing.T) {
 	}
 }
 
+func TestRunGolden(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "expected.txt"), []byte("line one\nline two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Trailing-newline differences must not cause false drift.
+	g := store.Artifact{Kind: "solution", Local: true, VerifyKind: "golden",
+		VerifyCmd: "expected.txt::printf 'line one\\nline two\\n'"}
+	if got := Run(g, dir); got.Status != "verified" {
+		t.Fatalf("golden match (modulo trailing newline): got %s (%s)", got.Status, got.Detail)
+	}
+
+	// Output divergence is semantic drift.
+	drift := store.Artifact{Kind: "solution", Local: true, VerifyKind: "golden",
+		VerifyStatus: "verified",
+		VerifyCmd:    "expected.txt::echo changed"}
+	if got := Run(drift, dir); got.Status != "stale" {
+		t.Fatalf("golden drift: got %s (%s)", got.Status, got.Detail)
+	}
+
+	// Malformed verify_cmd and missing golden file are errors, never silent ok.
+	malformed := store.Artifact{Kind: "solution", Local: true, VerifyKind: "golden", VerifyCmd: "just-a-command"}
+	if got := Run(malformed, dir); got.Status != "error" {
+		t.Fatalf("malformed golden cmd: got %s", got.Status)
+	}
+	missing := store.Artifact{Kind: "solution", Local: true, VerifyKind: "golden",
+		VerifyCmd: "nope.txt::true"}
+	if got := Run(missing, dir); got.Status != "error" {
+		t.Fatalf("missing golden file: got %s", got.Status)
+	}
+}
+
 func sha256Sum(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)
