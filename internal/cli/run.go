@@ -60,6 +60,7 @@ func runStartCmd() *cobra.Command {
 			if err != nil {
 				return failErr(err)
 			}
+			autoCapture(s, wf, runID)
 			r, _ := s.LoadRun(runID)
 			if jsonOut {
 				printJSON(map[string]string{"run_id": runID, "status": r.Status, "waiting": r.WaitingApproval})
@@ -127,6 +128,7 @@ func runApproveCmd() *cobra.Command {
 			if err := eng.Approve(args[0], args[1], wf); err != nil {
 				return failErr(err)
 			}
+			autoCapture(s, wf, args[0])
 			r, _ := s.LoadRun(args[0])
 			if jsonOut {
 				printJSON(map[string]string{"status": r.Status})
@@ -163,6 +165,7 @@ func runResumeCmd() *cobra.Command {
 			if err := eng.Run(args[0], wf); err != nil {
 				return failErr(err)
 			}
+			autoCapture(s, wf, args[0])
 			r, _ := s.LoadRun(args[0])
 			if jsonOut {
 				printJSON(map[string]string{"status": r.Status})

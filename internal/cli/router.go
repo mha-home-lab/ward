@@ -106,6 +106,9 @@ func routerCmd() *cobra.Command {
 						d.Node, d.Tier, d.Model, d.Ceremony, d.MemoryHit, d.VerifyStatus))
 					printLine("      " + d.Reason)
 					printLine("      context=" + d.Context)
+					if !d.MemoryHit {
+						printLine("      miss: no verified artifact tagged " + d.Node)
+					}
 				}
 				printLine("")
 				printLine(fmt.Sprintf("cheap+verified success : %d", summary.CheapVerified))

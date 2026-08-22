@@ -355,6 +355,53 @@ on run: success
 Trigger: use WARD on a repo that is not WARD; if result-capture is painful,
 that is the evidence to start B. Do NOT start B speculatively.
 
+#### Evidence — 2026-08-22, secure-bank (foreign repo)
+
+WARD ran end-to-end against `secure-bank` with real work as substrate. All
+thesis invariants held on foreign state:
+
+- **cheap+verified:** implement/test routed cheap after live grep + `go test ./...`.
+- **drift caught:** a "GraphQL gateway" spec failed live grep → mid tier, never
+  voted cheap.
+- **trust boundary:** an imported artifact stayed `unknown`, never executed.
+- **contention:** unordered siblings sharing `main.go` → `strong` + `full`.
+- **fail→escalate:** a `gofmt` gate failed (pre-existing misalignment) →
+  cheap→mid→strong → run **rejected**, no silent success.
+- **two sessions:** `start` paused at approval; a *fresh process* resumed via the
+  persisted workflow path.
+
+**The friction is measured, not vibes.** 5 memory artifacts = 5 hand-typed
+invocations, each carrying summary+content+tags+verify-cmd; and `tags` must
+match node ids *exactly* or routing silently misses (the author only knew this
+from reading `engine.go:201`). Verification itself worked flawlessly on foreign
+state — it caught a stale spec and a dirty file. So the skeleton holds; what
+hurts is **authoring claims**, not trusting them.
+
+**Conclusion:** B is now *evidenced*, not speculative. Approve to start when you
+say the word. Do not start speculatively.
+
+#### Implemented (2026-08-22) — v0.2 thin slice, CLI-only, no engine changes
+
+B closed flow.md step 7. Changes (all in `internal/cli`, engine untouched):
+
+- `ward capture` command + `autoCapture` after `run start`/`resume`/`approve`:
+  every done node with a `run:` writes a store-local **accepted** (light)
+  artifact. `ward capture --run <id>` also captures nodes without a `run:`.
+- **Default tag = node id** (the only tag routing needs for a hit) → the silent
+  miss from hand-typed tags is gone at the source.
+- **verify_cmd inferred:** `kind: test` → `go test ./...`; a node declaring a
+  concrete `produces` file → `sha256::<path>` (glob produces skipped). Override
+  with `--verify-cmd`/`--verify-kind`. Verification is **deferred** to the next
+  session (no immediate re-execution of `go test`).
+- `ward router` now logs `miss: no verified artifact tagged <node>` instead of
+  silence.
+
+Acceptance met on this repo: first run auto-captured `test`/`verify`; second run
+routes them `tier=cheap` (`hit=true verify=verified`) via live re-verify; other
+nodes miss (logged). Unit-tested in `internal/cli/capture_test.go`.
+
+Still open (tracked, not for v0.1/v0.2): the four leftovers below.
+
 ### Leftovers (track, do not fix now)
 
 - **`TestMigrationFromV1` tests the wrong era.** It opens a fresh DB (columns

@@ -55,6 +55,14 @@ ward run resume <run_id> --auto-approve                        # second session
 #   verify -> tier=cheap model=gemini-2.0-flash context=["<verified id>"]
 #   (context is the verified artifact id only, never exec stdout)
 
+# Result capture (flow.md step 7): a successful `run:` node auto-writes a
+# store-local accepted artifact (tag = node id) on run/resume, so the NEXT
+# session can route it cheap without hand-typed YAML. `ward capture` does the
+# same for any node, or inspect what was written.
+ward run start --workflow workflows/go-test-demo.yaml --auto-approve   # auto-captures
+ward capture --run <run_id>                                        # or capture explicitly
+
+
 # Maintenance: re-verify everything live and report drift.
 ward tick
 ```
