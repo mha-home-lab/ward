@@ -10,19 +10,24 @@ import (
 
 var jsonOut bool
 
+// Version is stamped at build time via -ldflags; default reports dev.
+var Version = "dev"
+
 // NewRoot builds the full ward command tree.
 func NewRoot() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "ward",
-		Short: "verify-gated model routing for local coding agents",
+		Use:     "ward",
+		Short:   "verify-gated model routing for local coding agents",
+		Version: Version,
 		Long: "WARD routes each unit of work to the cheapest model that can do it\n" +
 			"correctly, using verified prior knowledge as a routing signal. Unverified,\n" +
-			"stale, or imported artifacts count as a memory MISS and never vote for cheap.",
+			"stale, or imported artifacts count as a memory MISS and never vote for cheap.\n\n" +
+			"Start every session with:  ward brief [topic]",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 	root.PersistentFlags().BoolVar(&jsonOut, "json", false, "emit JSON instead of human text")
-	root.AddCommand(initCmd(), memoryCmd(), verifyCmd(), routeCmd(), routerCmd(), runCmd(), captureCmd(), doctorCmd(), workflowCmd(), tickCmd())
+	root.AddCommand(briefCmd(), initCmd(), memoryCmd(), verifyCmd(), routeCmd(), routerCmd(), runCmd(), captureCmd(), doctorCmd(), workflowCmd(), tickCmd())
 	return root
 }
 

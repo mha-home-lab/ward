@@ -304,6 +304,30 @@ func (s *Store) LatestRun() (RunState, error) {
 	return r, nil
 }
 
+// OpenRuns returns every run that is still in flight (running or awaiting
+// approval), oldest first. Used by handoff and brief to surface unfinished work.
+func (s *Store) OpenRuns() ([]RunState, error) {
+	rows, err := s.DB.Query(`SELECT id, workflow_name, workflow_path, status, waiting_approval_id,
+		current_item_id, ceremony_level, created_at, updated_at FROM runs
+		WHERE status IN ('running','awaiting_approval') ORDER BY created_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RunState
+	for rows.Next() {
+		var r RunState
+		var wa, ci, cer, wp sql.NullString
+		if err := rows.Scan(&r.ID, &r.WorkflowName, &wp, &r.Status, &wa, &ci, &cer, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		r.WorkflowPath = nullStr(wp)
+		r.WaitingApproval, r.CurrentItem, r.Ceremony = nullStr(wa), nullStr(ci), nullStr(cer)
+		out = append(out, r)
+	}
+	return out, nil
+}
+
 // SaveRun upserts run state.
 func (s *Store) SaveRun(r RunState) error {
 	_, err := s.DB.Exec(`INSERT INTO runs (id, workflow_name, workflow_path, status, waiting_approval_id,

@@ -1,24 +1,40 @@
 # AGENTS.md
 
-Before continuing work on this repo, do two things:
+<!-- ward:protocol v1 -->
+## WARD — verified project memory (managed block; do not edit between markers)
 
-1. `ward tick` — re-verify store-local artifacts live and free any expired
-   claims, so a stale or timed-out reservation can't block you.
-2. `ward memory context <topic>` — pull relevant prior knowledge (ids, kind,
-   summary, tags, verify status) into your context. Prefer verified facts over
-   guessing.
+This project is ward-managed. Follow this protocol exactly; it exists so you
+never re-solve solved problems and never trust stale claims.
 
-On success, `ward` already auto-captures: a `run:` node that succeeds writes a
-store-local accepted artifact (tagged by node id), so the next session can route
-it cheap without you doing anything. You do not need to record results by hand.
+1. SESSION START (always, before planning): run
 
-Do not trust unverified summaries. A memory hit only votes for the cheap tier
-when it is both memory-resident AND verified against real repo state — an
-unverified, stale, or imported artifact counts as a miss and routes to a stronger
-tier. Treat a routing decision's `context` (verified artifact ids) as the source
-of truth, not a human-written recap.
+       ward brief [topic]
 
-Do not hand-type `ward memory put`. The auto-capture path is the supported way
-results enter the store; `put` defaults to untrusted and is for humans to
-deliberately cross the trust boundary. Never write a `verify_cmd` you wouldn't
-run yourself.
+   It re-verifies store-local results live, frees expired reservations, and
+   prints prior knowledge, open runs, active claims, and suggested next actions.
+2. TRUST RULE: only verified artifacts are facts. A memory hit votes for the
+   cheap tier ONLY when live-verified against repo state; unverified, stale, or
+   imported artifacts count as a MISS -> work at full attention. Treat a
+   routing decision's verified context ids as truth, never a recap.
+3. EXCLUSIVE WORK: before touching a shared topic (file, migration, release),
+   run: ward memory claim add <topic> --ttl 60 --by <your-name>
+   A conflict is a hard stop: pick different work, never proceed in parallel.
+   Release with: ward memory claim release <topic>
+4. RECORDING RESULTS IS AUTOMATIC: successful ward run nodes capture
+   store-local artifacts tagged by node id. Do NOT hand-type
+   ward memory put; never write a verify_cmd you would not run yourself.
+5. BEFORE ENDING: run  ward memory handoff  so the next session inherits
+   incomplete work, open runs, and stale candidates.
+6. FAILURE POLICY: two escalating failures exhaust the budget and the run stops
+   for a human. Never retry past it; report the rejection instead.
+
+Every command accepts --json for machine-readable output. If a command errors,
+fix the cause; never bypass the store or the trust boundary.
+<!-- /ward:protocol -->
+## Repo-specific notes
+
+- `go build ./... && go test ./...` is the verification gate; `gofmt -l .` must
+  be empty. Run all three before claiming done.
+- Router purity is load-bearing: `internal/routing.Route` must stay pure (no
+  I/O, no model calls). Execution lives in `internal/adapter`.
+- The trust boundary (`Local` flag) gates verify_cmd execution. Never weaken it.

@@ -12,19 +12,32 @@ import (
 )
 
 func initCmd() *cobra.Command {
-	var scaffold, docs bool
+	var scaffold, docs, noAgentDocs bool
 	c := &cobra.Command{
 		Use:   "init",
-		Short: "initialize the ward store (sqlite + schema)",
+		Short: "initialize the ward store (sqlite + schema) and inject the agent protocol",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
 				return failErr(err)
 			}
 			defer s.DB.Close()
+			// Agent-doc injection is the DEFAULT, not an opt-in: a project that
+			// runs `ward init` becomes self-consulting — every future agent
+			// session reads the protocol from AGENTS.md (and any existing
+			// CLAUDE.md/GEMINI.md) without a human repeating it.
+			docsWritten := map[string]string{}
+			if !noAgentDocs {
+				if docsWritten, err = ensureAgentDocs("."); err != nil {
+					return failErr(err)
+				}
+			}
 			if jsonOut {
-				printJSON(map[string]string{"status": "ok", "home": s.Home})
+				printJSON(map[string]any{"status": "ok", "home": s.Home, "agent_docs": docsWritten})
 			} else {
+				if len(docsWritten) == 0 && !noAgentDocs {
+					printLine("agent protocol already current")
+				}
 				printLine("ward initialized at " + s.Home)
 			}
 			// --scaffold writes a real, runnable default workflow (not a spec
@@ -47,6 +60,7 @@ func initCmd() *cobra.Command {
 	}
 	c.Flags().BoolVar(&scaffold, "scaffold", false, "also write workflows/default.yaml (runnable linear DAG) in the current directory")
 	c.Flags().BoolVar(&docs, "docs", false, "also write .spec/blueprint.md and .arch/tasks.md skeletons")
+	c.Flags().BoolVar(&noAgentDocs, "no-agents-md", false, "skip injecting the ward protocol block into AGENTS.md / existing CLAUDE.md / GEMINI.md")
 	return c
 }
 

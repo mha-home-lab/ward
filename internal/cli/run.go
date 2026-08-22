@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 
 	"github.com/mha-home-lab/ward/internal/orchestration"
@@ -15,9 +16,25 @@ func runCmd() *cobra.Command {
 	return cmd
 }
 
+// defaultWorkflowPaths is the resolution order for an unspecified --workflow:
+// the runnable scaffold a fresh project gets from `ward init --scaffold` first,
+// the demo workflow last. The final entry only produces a useful error message.
+var defaultWorkflowPaths = []string{"workflows/default.yaml", "workflows/oidc-login.yaml"}
+
+// loadWF resolves an unspecified path against defaultWorkflowPaths instead of
+// hardcoding one demo file, so a project that scaffolded default.yaml runs it
+// without flags.
 func loadWF(path string) (*orchestration.Workflow, error) {
 	if path == "" {
-		path = "workflows/oidc-login.yaml"
+		for _, p := range defaultWorkflowPaths {
+			if _, err := os.Stat(p); err == nil {
+				path = p
+				break
+			}
+		}
+		if path == "" {
+			path = defaultWorkflowPaths[0]
+		}
 	}
 	return orchestration.LoadWorkflow(path)
 }

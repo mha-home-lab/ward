@@ -20,10 +20,17 @@ under `WARD_HOME`, defaulting to your home config dir).
 ## Quick start
 
 ```bash
-ward init                                # create the sqlite store
+ward init                                # create the store + inject the agent protocol into AGENTS.md
 ward init --scaffold                     # also write workflows/default.yaml (runnable DAG)
-ward run start --workflow workflows/default.yaml --auto-approve
+ward brief                               # session bootstrap: verify, sweep, report what matters
+ward run start --auto-approve            # runs workflows/default.yaml (no --workflow needed)
 ```
+
+`init` is self-consulting by default: it writes (or refreshes) a marker-delimited
+protocol block in `AGENTS.md`, and updates `CLAUDE.md` / `GEMINI.md` when they
+already exist. Any agent that reads those files is briefed without a human
+repeating the rules. Re-running `init` refreshes the block; content outside the
+markers is never touched. Opt out with `--no-agents-md`.
 
 `default.yaml` is a linear DAG: `start → test (run: go test ./...) → done`. The
 `test` node runs `go test ./...`; if it passes, WARD captures the result as a
@@ -32,6 +39,19 @@ node runs, that verified hit lets it route **cheap** instead of re-doing the
 work. A failed `go test` is a first-class failure: the node is marked failed
 (never "done"), escalates one tier, and is retried until the budget (2) is spent
 — then the run is **rejected**. No silent success.
+
+## The loop an agent actually lives
+
+1. `ward brief [topic]` — one command at session start. It live-verifies every
+   local claim, frees expired reservations, then reports prior knowledge, open
+   runs, active claims, and imperative next actions (`--json` for machines).
+2. Work through a workflow (`ward run start/resume/approve`). Successes are
+   captured automatically as verified artifacts; failures escalate and stop.
+3. `ward memory handoff` before ending so the next session inherits state.
+
+Nothing above requires human babysitting: the protocol ships inside the repo,
+the store carries the state, and `brief` tells each new session exactly where
+to pick up.
 
 ## Tiers: cheap, mid, rejected
 
@@ -60,8 +80,11 @@ own work product.
 
 ## Commands
 
-- `ward init [--scaffold] [--docs]` — create the store; `--scaffold` writes
-  `workflows/default.yaml`; `--docs` writes spec skeletons.
+- `ward brief [topic]` — session bootstrap: live re-verify, free expired
+  claims, then prior knowledge + open runs + claims + next actions.
+- `ward init [--scaffold] [--docs] [--no-agents-md]` — create the store and
+  inject the agent protocol; `--scaffold` writes `workflows/default.yaml`;
+  `--docs` writes spec skeletons.
 - `ward memory <put|get|search|list|promote|supersede|handoff|context|stale|claim>`
   — the agent memory store. `ward memory claim add <topic>` is an **exclusive**
   reservation: one active claim per topic+project; a conflict is a hard error.
@@ -69,6 +92,7 @@ own work product.
 - `ward run <start|status|approve|resume>` — workflow lifecycle.
 - `ward tick` — re-verify local artifacts live, free expired claims, report drift.
 - `ward doctor` — store + environment health (including `legacy_claims`).
+- `ward version`, `ward completion <shell>` — plumbing (cobra completions).
 - Every command supports `--json` and emits one-line errors.
 
 ## Internals / demo

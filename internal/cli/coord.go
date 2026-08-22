@@ -156,7 +156,11 @@ func claimAddCmd() *cobra.Command {
 			if conflict {
 				return failErr(fmt.Errorf("claim overlap on %s", topic))
 			}
-			printLine(fmt.Sprintf("claimed %q -> %s (by %s)", topic, id, by))
+			if jsonOut {
+				printJSON(map[string]string{"id": id, "topic": topic, "by": by, "expires": expires})
+			} else {
+				printLine(fmt.Sprintf("claimed %q -> %s (by %s)", topic, id, by))
+			}
 			return nil
 		},
 	}
