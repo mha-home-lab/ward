@@ -26,7 +26,7 @@ func (e *Engine) StartWorkflow(wf *Workflow) (string, error) {
 	runID := "run-" + sha8run(wf.Name+time.Now().String())
 	now := store.NowISO()
 	if err := e.Store.CreateRun(store.RunState{
-		ID: runID, WorkflowName: wf.Name, Status: "running",
+		ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "running",
 		Ceremony: "light", CreatedAt: now, UpdatedAt: now,
 	}); err != nil {
 		return "", err
@@ -65,7 +65,7 @@ func (e *Engine) Run(runID string, wf *Workflow) error {
 		}
 		if next == "" {
 			_ = e.Store.SaveRun(store.RunState{
-				ID: runID, WorkflowName: wf.Name, Status: "completed",
+				ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "completed",
 				UpdatedAt: store.NowISO(),
 			})
 			return nil
@@ -117,7 +117,7 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 			RunID: runID, Node: nodeID, Status: "failed", Escalation: esc, UpdatedAt: store.NowISO(),
 		})
 		_ = e.Store.SaveRun(store.RunState{
-			ID: runID, WorkflowName: wf.Name, Status: "rejected", UpdatedAt: store.NowISO(),
+			ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO(),
 		})
 		_ = e.Store.AddEvent(runID, "reject", nodeID, dec.Reason)
 		return true, nil
@@ -136,7 +136,7 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 
 	if node.Kind == "approval" && !e.AutoApprove {
 		_ = e.Store.SaveRun(store.RunState{
-			ID: runID, WorkflowName: wf.Name, Status: "awaiting_approval",
+			ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "awaiting_approval",
 			WaitingApproval: nodeID, UpdatedAt: store.NowISO(),
 		})
 		for _, ch := range node.Channels {
@@ -163,12 +163,12 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 			// persist failed, and let the run loop re-attempt this node at the
 			// higher tier the router now selects (cheap -> mid -> strong -> human).
 			newEsc := esc + 1
-			if newEsc > maxEscalation {
+			if newEsc > routing.MaxEscalation {
 				_ = e.Store.UpsertRunNode(store.RunNode{
 					RunID: runID, Node: nodeID, Status: "failed", Escalation: newEsc, UpdatedAt: store.NowISO(),
 				})
 				_ = e.Store.SaveRun(store.RunState{
-					ID: runID, WorkflowName: wf.Name, Status: "rejected", UpdatedAt: store.NowISO(),
+					ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO(),
 				})
 				_ = e.Store.AddEvent(runID, "reject", nodeID, "escalation budget exhausted (max 2): run failed")
 				return true, nil
@@ -193,8 +193,6 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 	_ = e.Store.AddEvent(runID, "done", nodeID, obs)
 	return false, nil
 }
-
-const maxEscalation = 2
 
 // memoryHitForNode returns whether a VERIFIED prior solution exists for this
 // node. The thesis: an artifact may not vote for cheap until it matches current

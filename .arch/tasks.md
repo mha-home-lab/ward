@@ -252,6 +252,17 @@ prove done, in the spirit of chef's `tasks.md`.
     Each routing decision records `context` = the verified artifact ids only;
     failed-attempt prose is never carried into a retry (`resume from verified
     facts only`). Contention test fixed to not be order-lucky.
+
+  - **Schema migrations idempotent (2026-08-22):** `escalation` (run_nodes),
+    `context` (routing_decisions), and `workflow_path` (runs) are added via
+    `ALTER` + `PRAGMA user_version = 2`, never a silent rewrite. A database
+    from an earlier build opens and `INSERT`s cleanly (regression test
+    `TestMigrationFromV1`). `workflow_path` lets `ward run resume`/`approve` in
+    a second session reload the originating workflow without `--workflow`
+    (previously defaulted to oidc-login and corrupted the run — fixed).
+  - `maxEscalation` is now a single constant (`routing.MaxEscalation`).
+  - Shipped `workflows/fail-demo.yaml` and `workflows/go-test-demo.yaml`;
+    `ward router` now prints each decision's `context`.
   - `memory put` light ceremony auto-accepts; `memory get`/`supersede`, `verify
     --all`/`--trust`, structured `handoff --incomplete`, and `tick` (drift sweep)
     implemented. `go.mod` deps direct; `PRAGMA journal_mode=WAL` on open.

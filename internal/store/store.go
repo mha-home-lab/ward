@@ -46,7 +46,10 @@ func Open() (*Store, error) {
 	return s, nil
 }
 
-// Init creates schema + FTS5 triggers and sets user_version. Idempotent.
+// Init creates the base schema + FTS5 triggers, then applies additive
+// migrations idempotently up to the current user_version. It never rewrites an
+// existing table: new columns arrive via ALTER so databases opened from an
+// earlier build keep working.
 func (s *Store) Init() error {
 	if _, err := s.DB.Exec(schemaSQL); err != nil {
 		return err
@@ -54,7 +57,53 @@ func (s *Store) Init() error {
 	if _, err := s.DB.Exec(ftsTriggers); err != nil {
 		return err
 	}
-	_, err := s.DB.Exec("PRAGMA user_version = 1")
+	return s.migrate()
+}
+
+// migrate applies version N -> N+1 steps until current. Each step only adds a
+// column if it is missing, so re-running on an already-migrated DB is a no-op.
+func (s *Store) migrate() error {
+	// v1 -> v2: escalation tracking on run_nodes, verified-only context on
+	// routing_decisions, and the originating workflow path on runs so a second
+	// session can resume/approve without re-supplying --workflow.
+	if err := s.addColumn("run_nodes", "escalation", "INTEGER DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := s.addColumn("routing_decisions", "context", "TEXT"); err != nil {
+		return err
+	}
+	if err := s.addColumn("runs", "workflow_path", "TEXT"); err != nil {
+		return err
+	}
+	_, err := s.DB.Exec("PRAGMA user_version = 2")
+	return err
+}
+
+// addColumn adds the column only if it is not already present.
+func (s *Store) addColumn(table, col, typ string) error {
+	rows, err := s.DB.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	has := false
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == col {
+			has = true
+		}
+	}
+	if has {
+		return nil
+	}
+	_, err = s.DB.Exec("ALTER TABLE " + table + " ADD COLUMN " + col + " " + typ)
 	return err
 }
 
@@ -105,6 +154,7 @@ func parseTags(s string) []string {
 type RunState struct {
 	ID              string
 	WorkflowName    string
+	WorkflowPath    string // file the run was started from; used to reload on resume/approve
 	Status          string // running|awaiting_approval|completed|rejected
 	WaitingApproval string
 	CurrentItem     string
@@ -189,7 +239,6 @@ CREATE TABLE IF NOT EXISTS run_nodes (
   touched TEXT DEFAULT '[]',
   ceremony_level TEXT DEFAULT 'light',
   declared_obs TEXT DEFAULT '',
-  escalation INTEGER DEFAULT 0,
   updated_at TEXT NOT NULL,
   PRIMARY KEY (run_id, node)
 );
@@ -226,7 +275,7 @@ CREATE TABLE IF NOT EXISTS routing_decisions (
   tier TEXT, model TEXT, ceremony_level TEXT,
   memory_hit INTEGER, verify_status TEXT,
   contention INTEGER, escalated_from TEXT, reason TEXT,
-  context TEXT, contention_inputs TEXT,
+  contention_inputs TEXT,
   created_at TEXT NOT NULL
 );
 `

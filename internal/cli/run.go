@@ -22,6 +22,23 @@ func loadWF(path string) (*orchestration.Workflow, error) {
 	return orchestration.LoadWorkflow(path)
 }
 
+// resolveRunWF reloads the workflow a run was started from. The run persists
+// its originating file path, so a second session can resume/approve without
+// re-supplying --workflow; an explicit flag still overrides.
+func resolveRunWF(s *store.Store, flagPath, runID string) (*orchestration.Workflow, error) {
+	if flagPath != "" {
+		return loadWF(flagPath)
+	}
+	r, err := s.LoadRun(runID)
+	if err != nil {
+		return nil, err
+	}
+	if r.WorkflowPath != "" {
+		return orchestration.LoadWorkflow(r.WorkflowPath)
+	}
+	return loadWF("")
+}
+
 func runStartCmd() *cobra.Command {
 	var wfPath string
 	var autoApprove bool
@@ -102,7 +119,7 @@ func runApproveCmd() *cobra.Command {
 				return failErr(err)
 			}
 			defer s.DB.Close()
-			wf, err := loadWF(wfPath)
+			wf, err := resolveRunWF(s, wfPath, args[0])
 			if err != nil {
 				return failErr(err)
 			}
@@ -138,7 +155,7 @@ func runResumeCmd() *cobra.Command {
 				return failErr(err)
 			}
 			defer s.DB.Close()
-			wf, err := loadWF(wfPath)
+			wf, err := resolveRunWF(s, wfPath, args[0])
 			if err != nil {
 				return failErr(err)
 			}

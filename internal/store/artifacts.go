@@ -139,10 +139,10 @@ func nullStr(s sql.NullString) string {
 
 // CreateRun inserts a new run row.
 func (s *Store) CreateRun(r RunState) error {
-	_, err := s.DB.Exec(`INSERT INTO runs (id, workflow_name, status, waiting_approval_id,
+	_, err := s.DB.Exec(`INSERT INTO runs (id, workflow_name, workflow_path, status, waiting_approval_id,
 		current_item_id, ceremony_level, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?)`,
-		r.ID, r.WorkflowName, r.Status, r.WaitingApproval, r.CurrentItem, r.Ceremony,
+		VALUES (?,?,?,?,?,?,?,?,?)`,
+		r.ID, r.WorkflowName, r.WorkflowPath, r.Status, r.WaitingApproval, r.CurrentItem, r.Ceremony,
 		r.CreatedAt, r.UpdatedAt)
 	return err
 }
@@ -150,29 +150,31 @@ func (s *Store) CreateRun(r RunState) error {
 // LoadRun loads a run by id.
 func (s *Store) LoadRun(id string) (RunState, error) {
 	var r RunState
-	var wa, ci, cer sql.NullString
-	err := s.DB.QueryRow(`SELECT id, workflow_name, status, waiting_approval_id,
+	var wa, ci, cer, wp sql.NullString
+	err := s.DB.QueryRow(`SELECT id, workflow_name, workflow_path, status, waiting_approval_id,
 		current_item_id, ceremony_level, created_at, updated_at FROM runs WHERE id=?`, id).
-		Scan(&r.ID, &r.WorkflowName, &r.Status, &wa, &ci, &cer, &r.CreatedAt, &r.UpdatedAt)
+		Scan(&r.ID, &r.WorkflowName, &wp, &r.Status, &wa, &ci, &cer, &r.CreatedAt, &r.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return r, fmt.Errorf("no run %s", id)
 	}
 	if err != nil {
 		return r, err
 	}
+	r.WorkflowPath = nullStr(wp)
 	r.WaitingApproval, r.CurrentItem, r.Ceremony = nullStr(wa), nullStr(ci), nullStr(cer)
 	return r, nil
 }
 
 // SaveRun upserts run state.
 func (s *Store) SaveRun(r RunState) error {
-	_, err := s.DB.Exec(`INSERT INTO runs (id, workflow_name, status, waiting_approval_id,
+	_, err := s.DB.Exec(`INSERT INTO runs (id, workflow_name, workflow_path, status, waiting_approval_id,
 		current_item_id, ceremony_level, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?)
+		VALUES (?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET status=excluded.status,
+		workflow_path=excluded.workflow_path,
 		waiting_approval_id=excluded.waiting_approval_id, current_item_id=excluded.current_item_id,
 		ceremony_level=excluded.ceremony_level, updated_at=excluded.updated_at`,
-		r.ID, r.WorkflowName, r.Status, r.WaitingApproval, r.CurrentItem, r.Ceremony,
+		r.ID, r.WorkflowName, r.WorkflowPath, r.Status, r.WaitingApproval, r.CurrentItem, r.Ceremony,
 		r.CreatedAt, r.UpdatedAt)
 	return err
 }

@@ -18,7 +18,7 @@ var modelFor = map[Tier]string{
 	TierStrong:  "gpt-4o",
 }
 
-const maxEscalation = 2
+const MaxEscalation = 2
 
 // Decision is the router output. Reject means escalation budget exhausted.
 type Decision struct {
@@ -39,7 +39,7 @@ type Inputs struct {
 	MemoryHit   bool
 	Verify      string // verified | stale | error | unknown
 	Contention  bool
-	Escalation  int // 0..maxEscalation; >max => reject
+	Escalation  int // 0..MaxEscalation; >max => reject
 }
 
 func tierIndex(t Tier) int {
@@ -94,10 +94,10 @@ func baseTier(in Inputs) Tier {
 
 // Route is a PURE function: same inputs -> same decision. No I/O, no LLM.
 func Route(in Inputs) Decision {
-	if in.Escalation > maxEscalation {
+	if in.Escalation > MaxEscalation {
 		return Decision{
 			Reject: true,
-			Reason: fmt.Sprintf("escalation budget exhausted (max %d): cheap->mid->strong then human", maxEscalation),
+			Reason: fmt.Sprintf("escalation budget exhausted (max %d): cheap->mid->strong then human", MaxEscalation),
 		}
 	}
 

@@ -42,9 +42,28 @@ ward router --workflow workflows/parallel-demo.yaml --auto-approve
 ward run start --workflow workflows/parallel-demo.yaml --auto-approve
 #   run completes; build-a/build-b each ran their `run:` shell command
 
+# A FAILED `run:` command is first-class: the node is marked failed (not done),
+# escalation bumps, and the SAME node is re-routed at the next tier until the
+# budget (2) is spent -> run rejected. No silent success.
+ward run start --workflow workflows/fail-demo.yaml --auto-approve
+#   work -> failed; run rejected after 3 escalating attempts.
+
+# A real `go test` adapter + grep-verify, then resumed in a SECOND session.
+# The run persists its originating workflow file, so resume needs no --workflow.
+ward run start --workflow workflows/go-test-demo.yaml          # pauses at review
+ward run resume <run_id> --auto-approve                        # second session
+#   verify -> tier=cheap model=gemini-2.0-flash context=["<verified id>"]
+#   (context is the verified artifact id only, never exec stdout)
+
 # Maintenance: re-verify everything live and report drift.
 ward tick
 ```
+
+> **Schema migrations.** The store opens idempotently: it applies additive
+> `ALTER`s (never a silent rewrite) up to `PRAGMA user_version`, so a database
+> created by an earlier build keeps working. Each run also persists its
+> originating workflow path, so `ward run resume` / `ward run approve` in a new
+> process reload the correct workflow without re-supplying `--workflow`.
 
 ## What is built (v1 vertical slice)
 

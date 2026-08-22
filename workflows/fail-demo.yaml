@@ -1,0 +1,12 @@
+name: fail-demo
+nodes:
+  - id: start
+    kind: channel
+  - id: work
+    kind: test
+    run: "false"
+  - id: done
+    kind: channel
+edges:
+  - {from: start, to: work}
+  - {from: work, to: done}

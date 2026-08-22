@@ -207,6 +207,16 @@ func TestEngineRunFailureEscalates(t *testing.T) {
 	if !strings.Contains(workDecs[0].Context, seedID) {
 		t.Fatalf("first attempt context must carry the verified fact %s, got %s", seedID, workDecs[0].Context)
 	}
+	// Every (re-)attempt resumes from the SAME verified facts; failed-attempt
+	// exec output must never appear in Context.
+	for i, d := range workDecs {
+		if !strings.Contains(d.Context, seedID) {
+			t.Fatalf("attempt %d context must carry the verified fact %s, got %s", i, seedID, d.Context)
+		}
+		if strings.Contains(d.Context, "exec") || strings.Contains(d.Context, "false") {
+			t.Fatalf("attempt %d context leaked exec output: %s", i, d.Context)
+		}
+	}
 	nodes, _ := eng.Store.LoadRunNodes(runID)
 	for _, n := range nodes {
 		if n.Node == "work" && n.Status == "done" {

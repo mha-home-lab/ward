@@ -105,6 +105,7 @@ func routerCmd() *cobra.Command {
 					printLine(fmt.Sprintf("  %-18s tier=%-7s model=%-15s ceremony=%-5s hit=%v verify=%s",
 						d.Node, d.Tier, d.Model, d.Ceremony, d.MemoryHit, d.VerifyStatus))
 					printLine("      " + d.Reason)
+					printLine("      context=" + d.Context)
 				}
 				printLine("")
 				printLine(fmt.Sprintf("cheap+verified success : %d", summary.CheapVerified))

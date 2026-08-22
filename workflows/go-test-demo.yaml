@@ -1,0 +1,21 @@
+name: go-test-demo
+nodes:
+  - id: start
+    kind: channel
+  - id: test
+    kind: test
+    run: "go test ./..."
+    produces: ["*.go"]
+  - id: review
+    kind: approval
+    channels: [review]
+  - id: verify
+    kind: test
+    run: "grep -rq WARD README.md"
+  - id: done
+    kind: channel
+edges:
+  - {from: start, to: test}
+  - {from: test, to: review}
+  - {from: review, to: verify}
+  - {from: verify, to: done}
