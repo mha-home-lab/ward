@@ -22,6 +22,7 @@ type Node struct {
 	Channels []string `yaml:"channels"`
 	Produces []string `yaml:"produces"` // agent-declared touched set (stand-in for D0.1)
 	Run      string   `yaml:"run"`      // optional shell command the node executes (real adapter)
+	Prompt   string   `yaml:"prompt"`   // optional model task; driven via the opencode adapter at the routed tier
 }
 
 type Edge struct {

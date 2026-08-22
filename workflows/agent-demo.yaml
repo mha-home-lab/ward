@@ -1,0 +1,16 @@
+name: agent-demo
+nodes:
+  - id: start
+    kind: channel
+  - id: implement
+    kind: test
+    prompt: "Write a Go function Add(a, b int) int in add.go with a table test in add_test.go."
+  - id: verify
+    kind: test
+    run: "go test ./..."
+  - id: done
+    kind: channel
+edges:
+  - {from: start, to: implement}
+  - {from: implement, to: verify}
+  - {from: verify, to: done}

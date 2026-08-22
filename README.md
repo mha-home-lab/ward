@@ -62,6 +62,13 @@ ward run resume <run_id> --auto-approve                        # second session
 ward run start --workflow workflows/go-test-demo.yaml --auto-approve   # auto-captures
 ward capture --run <run_id>                                        # or capture explicitly
 
+# Model execution (the hands): a node with `prompt:` drives a model at the
+# routed tier via opencode's free models — cheap->opencode/hy3-free,
+# mid->opencode/mimo-v2.5-free, strong->opencode/nemotron-3-ultra-free.
+# Routing decides the tier; the adapter translates it to a real model call.
+ward run start --workflow workflows/agent-demo.yaml --auto-approve
+#   implement -> opencode runs the prompt at the chosen tier; verify runs go test
+
 
 # Maintenance: re-verify everything live and report drift.
 ward tick

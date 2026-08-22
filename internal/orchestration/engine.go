@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mha-home-lab/ward/internal/adapter"
 	"github.com/mha-home-lab/ward/internal/observe"
 	"github.com/mha-home-lab/ward/internal/routing"
 	"github.com/mha-home-lab/ward/internal/store"
@@ -145,8 +146,24 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 		return true, nil
 	}
 
-	// The REAL adapter: if the node carries a `run` command, execute it against
-	// the repo. This is where work actually happens — and where it can fail.
+	// The REAL adapter: a node's work happens here. If it carries a `prompt`,
+	// drive a model (at the routed tier) via opencode. If it carries a `run`
+	// command, execute it against the repo. Either can fail -> escalate, never
+	// silently succeed. The routing/verify logic above is untouched.
+	if node.Prompt != "" {
+		out, merr := adapter.Run(e.repo(), adapter.ModelForTier(string(dec.Tier)), node.Prompt)
+		detail := "model ok"
+		if merr != nil {
+			detail = "model failed: " + merr.Error()
+		}
+		if len(out) > 0 {
+			detail += " | " + truncate(out, 200)
+		}
+		_ = e.Store.AddEvent(runID, "model", nodeID, detail)
+		if merr != nil {
+			return e.failNode(runID, wf, nodeID, esc, escal, "model failed")
+		}
+	}
 	if node.Run != "" {
 		out, rerr := execShell(node.Run, e.repo())
 		detail := "exec ok"
@@ -157,28 +174,8 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 			detail += " | " + truncate(string(out), 200)
 		}
 		_ = e.Store.AddEvent(runID, "exec", nodeID, detail)
-
 		if rerr != nil {
-			// Work failed. Do NOT mark done. Escalate: bump the retry count,
-			// persist failed, and let the run loop re-attempt this node at the
-			// higher tier the router now selects (cheap -> mid -> strong -> human).
-			newEsc := esc + 1
-			if newEsc > routing.MaxEscalation {
-				_ = e.Store.UpsertRunNode(store.RunNode{
-					RunID: runID, Node: nodeID, Status: "failed", Escalation: newEsc, UpdatedAt: store.NowISO(),
-				})
-				_ = e.Store.SaveRun(store.RunState{
-					ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO(),
-				})
-				_ = e.Store.AddEvent(runID, "reject", nodeID, "escalation budget exhausted (max 2): run failed")
-				return true, nil
-			}
-			escal[nodeID] = newEsc
-			_ = e.Store.UpsertRunNode(store.RunNode{
-				RunID: runID, Node: nodeID, Status: "failed", Escalation: newEsc, UpdatedAt: store.NowISO(),
-			})
-			_ = e.Store.AddEvent(runID, "escalate", nodeID, fmt.Sprintf("run failed; retry at higher tier (attempt %d/3)", newEsc+1))
-			return false, nil // not paused -> Run re-picks this node and re-routes
+			return e.failNode(runID, wf, nodeID, esc, escal, "run failed")
 		}
 	}
 
@@ -192,6 +189,30 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 	done[nodeID] = true
 	_ = e.Store.AddEvent(runID, "done", nodeID, obs)
 	return false, nil
+}
+
+// failNode records a failed work attempt and applies the escalation budget:
+// bump the retry count and re-route the SAME node at the higher tier the router
+// now selects, or reject/hand-to-human once the budget (max 2) is spent. Never
+// marks the node done.
+func (e *Engine) failNode(runID string, wf *Workflow, nodeID string, esc int, escal map[string]int, reason string) (bool, error) {
+	newEsc := esc + 1
+	if newEsc > routing.MaxEscalation {
+		_ = e.Store.UpsertRunNode(store.RunNode{
+			RunID: runID, Node: nodeID, Status: "failed", Escalation: newEsc, UpdatedAt: store.NowISO(),
+		})
+		_ = e.Store.SaveRun(store.RunState{
+			ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO(),
+		})
+		_ = e.Store.AddEvent(runID, "reject", nodeID, "escalation budget exhausted (max 2): "+reason)
+		return true, nil
+	}
+	escal[nodeID] = newEsc
+	_ = e.Store.UpsertRunNode(store.RunNode{
+		RunID: runID, Node: nodeID, Status: "failed", Escalation: newEsc, UpdatedAt: store.NowISO(),
+	})
+	_ = e.Store.AddEvent(runID, "escalate", nodeID, fmt.Sprintf("%s; retry at higher tier (attempt %d/3)", reason, newEsc+1))
+	return false, nil // not paused -> Run re-picks this node and re-routes
 }
 
 // memoryHitForNode returns whether a VERIFIED prior solution exists for this
