@@ -45,3 +45,36 @@ func TestRoute(t *testing.T) {
 		})
 	}
 }
+
+// TestRouteDeclaredTierFloor checks the node `tier:` field is a hard floor:
+// it can never lower the selected tier, even when memory+verified would pick
+// cheap. This is the admission key parallel agents match their budget against.
+func TestRouteDeclaredTierFloor(t *testing.T) {
+	// channel + hit + verified would be cheap; declared strong floor wins.
+	d := Route(Inputs{NodeKind: "channel", MemoryHit: true, Verify: "verified", DeclaredTier: "strong"})
+	if d.Tier != TierStrong {
+		t.Fatalf("declared floor strong must hold, got %s (reason %q)", d.Tier, d.Reason)
+	}
+	if d.Ceremony != "full" {
+		t.Fatalf("strong floor forces full ceremony, got %s", d.Ceremony)
+	}
+
+	// declared cheap on a memory-miss node (would force mid): floor never
+	// lowers, so the miss rule still wins -> mid.
+	d2 := Route(Inputs{NodeKind: "channel", MemoryHit: false, DeclaredTier: "cheap"})
+	if d2.Tier != TierMid {
+		t.Fatalf("memory miss still >= mid even with cheap floor, got %s", d2.Tier)
+	}
+
+	// no declared tier -> unchanged inference (regression guard).
+	d3 := Route(Inputs{NodeKind: "channel", MemoryHit: true, Verify: "verified"})
+	if d3.Tier != TierCheap {
+		t.Fatalf("no floor keeps cheap, got %s", d3.Tier)
+	}
+
+	// invalid declared tier is ignored (treated as no floor).
+	d4 := Route(Inputs{NodeKind: "channel", MemoryHit: true, Verify: "verified", DeclaredTier: "bogus"})
+	if d4.Tier != TierCheap {
+		t.Fatalf("invalid declared tier ignored, got %s", d4.Tier)
+	}
+}

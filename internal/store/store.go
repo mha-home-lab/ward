@@ -39,6 +39,12 @@ func Open() (*Store, error) {
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		return nil, err
 	}
+	// Wait (rather than fail) if another `ward` process briefly holds the write
+	// lock. Without this, parallel agents racing a claim would get SQLITE_BUSY
+	// instead of the clean unique-constraint conflict the routing relies on.
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		return nil, err
+	}
 	s := &Store{DB: db, Home: home}
 	if err := s.Init(); err != nil {
 		return nil, err
@@ -75,7 +81,17 @@ func (s *Store) migrate() error {
 	if err := s.addColumn("runs", "workflow_path", "TEXT"); err != nil {
 		return err
 	}
-	_, err := s.DB.Exec("PRAGMA user_version = 2")
+	// v2 -> v3: claim_topic enables an atomic, cross-process claim reservation.
+	// A unique index on (claim_topic, project) enforces "at most one active
+	// claim per (topic, project)" in the database itself, so parallel `ward`
+	// processes can't both win a check-then-insert race.
+	if err := s.addColumn("artifacts", "claim_topic", "TEXT"); err != nil {
+		return err
+	}
+	if _, err := s.DB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uni_claim_topic ON artifacts(claim_topic, project)"); err != nil {
+		return err
+	}
+	_, err := s.DB.Exec("PRAGMA user_version = 3")
 	return err
 }
 
@@ -281,17 +297,14 @@ CREATE TABLE IF NOT EXISTS routing_decisions (
 `
 
 const ftsTriggers = `
-DROP TRIGGER IF EXISTS artifacts_fts_ai;
-DROP TRIGGER IF EXISTS artifacts_fts_ad;
-DROP TRIGGER IF EXISTS artifacts_fts_au;
-CREATE TRIGGER artifacts_fts_ai AFTER INSERT ON artifacts BEGIN
+CREATE TRIGGER IF NOT EXISTS artifacts_fts_ai AFTER INSERT ON artifacts BEGIN
   INSERT INTO artifacts_fts(rowid, id, kind, summary, content, tags)
   VALUES (new.rowid, new.id, new.kind, coalesce(new.summary,''), new.content, new.tags);
 END;
-CREATE TRIGGER artifacts_fts_ad AFTER DELETE ON artifacts BEGIN
+CREATE TRIGGER IF NOT EXISTS artifacts_fts_ad AFTER DELETE ON artifacts BEGIN
   DELETE FROM artifacts_fts WHERE rowid = old.rowid;
 END;
-CREATE TRIGGER artifacts_fts_au AFTER UPDATE ON artifacts BEGIN
+CREATE TRIGGER IF NOT EXISTS artifacts_fts_au AFTER UPDATE ON artifacts BEGIN
   DELETE FROM artifacts_fts WHERE rowid = old.rowid;
   INSERT INTO artifacts_fts(rowid, id, kind, summary, content, tags)
   VALUES (new.rowid, new.id, new.kind, coalesce(new.summary,''), new.content, new.tags);

@@ -496,3 +496,57 @@ them closed, there are no known open items in the v0.1–v0.2 line or the review
   human required), chef ergonomics (claim/context/stale), v0.3 inference nit
   fixed, migration test strengthened to a true pre-columns DB. No known open
   items remain.
+
+## v0.4 — parallel-dispatch foundations (in progress, untagged)
+
+Scope deliberately limited to the **two primitives** parallel agent dispatch
+needs; the broker service / pickup loop is NOT built this pass (see `broker.md`
+non-goals). Spec-first: `.spec/broker.md` written before any code.
+
+### Foundations delivered
+
+- **Claim atomicity — the database is the arbiter (`broker.md` §1).** `claim add`
+  was check-then-insert (`activeClaims` SELECT then a separate INSERT);
+  `SetMaxOpenConns(1)` only serialized *within* one process, so two `ward`
+  binaries sharing `ward.db` could both win. Now: a `claim_topic` column +
+  unique index `uni_claim_topic ON artifacts(claim_topic, project)`. A claim is a
+  single plain `INSERT` (`Store.ClaimTopic`) — on conflict the caller warns or
+  errors (`--strict`); `ReleaseClaim` sets `claim_topic=NULL` to free the slot.
+  `PRAGMA busy_timeout=5000` added so concurrent writers (cross-process) wait
+  instead of getting `SQLITE_BUSY`. Migration is additive (`user_version` 2→3).
+  Tests: `TestClaimTopicAtomicRace` (8 processes, exactly one wins),
+  `TestClaimReleaseAndReclaim`, `TestClaimLifecycle` (rewritten to new semantics:
+  different topics → 2 active; same topic → 1 + warning).
+- **`tier:` field is a routing FLOOR (`broker.md` §2).** `Node.Tier`
+  (`yaml:"tier"`); `routing.Inputs.DeclaredTier` is applied **last** in `Route`,
+  so it can never lower the selected tier — even a memory-hit+verified-cheap case
+  cannot drop below a declared `strong`. Absent `tier` = unchanged v0.3.0
+  inference (regression-guarded by existing `TestRoute` cases). `stepNode` passes
+  `node.Tier` into the Inputs. Tests: `TestRouteDeclaredTierFloor` (floor holds,
+  forces `full`; cheap floor on a miss stays `mid`; no-tier + invalid-tier
+  unchanged), `TestEngineNodeTierFloor` (end-to-end decision recorded at the
+  declared tier).
+- **`ward init --scaffold` (`broker.md`, `cli.md`).** creates `.spec/blueprint.md`
+  and `.arch/tasks.md` in the **current** directory (any project), each with the
+  Status|Domain|Version header table, idempotent (skips existing files). Test:
+  `TestScaffoldSpecs`.
+
+### Designed but NOT implemented this pass (explicit non-goals)
+
+- **Cross-process escalation handoff (`broker.md` §3).** On failure, the claim
+  releases and `run_nodes.escalation` (already incremented by `failNode`) is the
+  persisted required-tier signal; the node re-enters the pickup pool for ANY
+  eligible agent. The picking mechanism (broker/poll loop + agent budget
+  registration) is deferred to v0.5+.
+- **Pickup/poll loop & agent budget registration** — the next slice, built
+  directly on these two primitives.
+
+### Open questions carried
+
+- Legacy (pre-v0.4) claims have `claim_topic=NULL` → grandfathered, not enforced
+  by the index. Acceptable.
+- An expired-but-unreleased claim still blocks re-claim (the index is static); a
+  `tick`-style sweep that nulls `claim_topic` on expired claims is deferred.
+- Topic granularity for work items (`<runID>:<nodeID>` proposed) left to the
+  broker design.
+

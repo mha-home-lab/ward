@@ -108,7 +108,7 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 	contention, overlaps := e.contentionForNode(wf, node, done)
 	dec := routing.Route(routing.Inputs{
 		NodeKind: node.Kind, MemoryHit: hit, Verify: verify, Contention: contention,
-		Escalation: esc,
+		Escalation: esc, DeclaredTier: node.Tier,
 	})
 	ctxJSON, _ := json.Marshal(verifiedIDs)
 	if dec.Reject {

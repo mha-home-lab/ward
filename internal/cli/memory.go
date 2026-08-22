@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mha-home-lab/ward/internal/store"
@@ -10,7 +12,8 @@ import (
 )
 
 func initCmd() *cobra.Command {
-	return &cobra.Command{
+	var scaffold bool
+	c := &cobra.Command{
 		Use:   "init",
 		Short: "initialize the ward store (sqlite + schema)",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -24,9 +27,82 @@ func initCmd() *cobra.Command {
 			} else {
 				printLine("ward initialized at " + s.Home)
 			}
+			if scaffold {
+				if err := scaffoldSpecs("."); err != nil {
+					return failErr(err)
+				}
+			}
 			return nil
 		},
 	}
+	c.Flags().BoolVar(&scaffold, "scaffold", false, "also create .spec/ and .arch/ skeletons in the current directory")
+	return c
+}
+
+// scaffoldSpecs writes WARD's spec convention into the current project: a
+// .spec/blueprint.md and an .arch/tasks.md, each with the Status|Domain|Version
+// header table, so the project can self-document the way WARD does. Idempotent:
+// existing files are left untouched.
+func scaffoldSpecs(dir string) error {
+	blueprint := `# blueprint — ` + filepath.Base(dir) + ` design blueprint
+
+| | |
+|---|---|
+| Status | Draft |
+| Domain | blueprint |
+| Version | 0.1.0 |
+
+## Purpose
+Describe what this project is for and the problem it solves.
+
+## Signals
+The inputs that should change a decision here (e.g. a verified prior result, a
+contention signal, a declared capability floor).
+
+## What's kept
+What is working and must not regress.
+
+## What's changed and why
+The delta under consideration and the reasoning.
+
+## Open questions
+Anything unresolved or deliberately deferred.
+`
+	tasks := `# tasks — ` + filepath.Base(dir) + ` tasklog
+
+| | |
+|---|---|
+| Status | Active |
+| Domain | tasks |
+| Version | 0.1.0 |
+
+## Open items
+- [ ] ...
+
+## Closed
+- (none yet)
+
+## Scope
+What this tasklog covers and what it deliberately excludes.
+`
+	files := map[string]string{
+		filepath.Join(dir, ".spec", "blueprint.md"): blueprint,
+		filepath.Join(dir, ".arch", "tasks.md"):     tasks,
+	}
+	for path, content := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if _, err := os.Stat(path); err == nil {
+			printLine("exists (skipped): " + path)
+			continue
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			return err
+		}
+		printLine("created: " + path)
+	}
+	return nil
 }
 
 func memoryCmd() *cobra.Command {

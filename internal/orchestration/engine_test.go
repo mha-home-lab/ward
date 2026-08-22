@@ -61,6 +61,34 @@ func TestEngineVerifyOnReadPassing(t *testing.T) {
 	t.Fatal("no decision for impl")
 }
 
+// TestEngineNodeTierFloor proves the node `tier:` field is honored end-to-end:
+// a channel node (would be cheap/mid by inference) declared `strong` is recorded
+// at the strong tier. This is the admission key parallel agents match against.
+func TestEngineNodeTierFloor(t *testing.T) {
+	repo := t.TempDir()
+	eng, closeFn := newTestEngine(t, repo)
+	defer closeFn()
+
+	wf := &Workflow{
+		Name:  "floor-wf",
+		Nodes: []Node{{ID: "n1", Kind: "channel", Tier: "strong"}},
+	}
+	runID, err := eng.StartWorkflow(wf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decs, _ := eng.Store.RoutingDecisionsForRun(runID)
+	for _, d := range decs {
+		if d.Node == "n1" {
+			if d.Tier != "strong" {
+				t.Fatalf("node declared tier strong must route strong, got %s (reason %q)", d.Tier, d.Reason)
+			}
+			return
+		}
+	}
+	t.Fatal("no decision for n1")
+}
+
 func TestEngineVerifyOnReadFailing(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "spec.md"), []byte("OIDC login spec\n"), 0o644); err != nil {

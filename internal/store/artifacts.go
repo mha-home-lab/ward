@@ -2,7 +2,9 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // --- artifacts ---
@@ -26,6 +28,80 @@ func (s *Store) UpsertArtifact(a Artifact) (string, error) {
 		return "", err
 	}
 	return id, nil
+}
+
+// ClaimTopic atomically reserves a topic. The unique index uni_claim_topic
+// (claim_topic, project) makes this correct across separate `ward` processes:
+// only one active claim per (topic, project) can exist. The acquisition is a
+// single plain INSERT — not a check-then-insert — so the database, not the app,
+// is the arbiter. On a conflict (an active claim already blocks it) conflict is
+// true and the caller warns or errors under --strict; no partial claim is left.
+func (s *Store) ClaimTopic(topic, project, by, expires string) (id string, conflict bool, err error) {
+	id = "claim:" + sha8(topic+"|"+project+"|"+by+"|"+expires+"|"+nowISO())
+	tags, _ := json.Marshal([]string{"claim", topic, project})
+	content := fmt.Sprintf("agent=%s expires=%s", by, expires)
+	_, e := s.DB.Exec(`INSERT INTO artifacts
+		(id, kind, summary, content, tags, status, created_by, created_at,
+		 ceremony_level, local, claim_topic, project, expires_at)
+		VALUES (?, 'claim', ?, ?, ?, 'accepted', ?, ?, 'light', 1, ?, ?, ?)`,
+		id, topic, content, string(tags), by, nowISO(), topic, project, expires)
+	if e != nil {
+		if isUniqueViolation(e) {
+			return "", true, nil
+		}
+		return "", false, e
+	}
+	return id, false, nil
+}
+
+// ReleaseClaim frees every active claim on (topic, project) so the topic can be
+// re-claimed. It clears claim_topic (the unique-index slot) atomically, which is
+// what actually reopens the slot — superseding alone would leave the row holding
+// the topic and keep blocking re-claim.
+func (s *Store) ReleaseClaim(topic, project string) (int64, error) {
+	res, err := s.DB.Exec(`UPDATE artifacts
+		SET status='superseded', superseded_at=?, superseded_reason='claim released', claim_topic=NULL
+		WHERE claim_topic=? AND project=? AND status='accepted'`,
+		nowISO(), topic, project)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// ActiveClaimIDs returns the ids of active claims matching topic (empty = any)
+// and project (empty = any). Because of the unique index there is at most one
+// per (topic, project); this supports reporting the conflicting id on a race.
+func (s *Store) ActiveClaimIDs(topic, project string) ([]string, error) {
+	q := `SELECT id FROM artifacts WHERE claim_topic IS NOT NULL AND status='accepted'`
+	args := []any{}
+	if topic != "" {
+		q += " AND claim_topic=?"
+		args = append(args, topic)
+	}
+	if project != "" {
+		q += " AND project=?"
+		args = append(args, project)
+	}
+	rows, err := s.DB.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func isUniqueViolation(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
 // GetArtifact loads one artifact by id.

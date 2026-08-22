@@ -23,6 +23,10 @@ type Node struct {
 	Produces []string `yaml:"produces"` // agent-declared touched set (stand-in for D0.1)
 	Run      string   `yaml:"run"`      // optional shell command the node executes (real adapter)
 	Prompt   string   `yaml:"prompt"`   // optional model task; driven via the opencode adapter at the routed tier
+	// Tier is the declared minimum tier for this node — a routing FLOOR. When
+	// set, the router never selects below it (see routing.go). Empty = pure
+	// inference (v0.3.0 behavior).
+	Tier string `yaml:"tier"`
 }
 
 type Edge struct {

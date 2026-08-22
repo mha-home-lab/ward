@@ -3,6 +3,8 @@ package store
 import (
 	"database/sql"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -86,5 +88,96 @@ func TestMigrationFromV1(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("expected 1 run_node after re-open, got %d", n)
+	}
+}
+
+// TestClaimCasRace proves the claim reservation is safe across separate
+// `ward` processes: eight independent Open() handles race on the same topic and
+// exactly ONE wins, the rest get a conflict. This is the bug the check-then-
+// insert path could not guarantee (the unique index on (claim_topic, project)
+// is the arbiter, not app logic).
+func TestClaimTopicAtomicRace(t *testing.T) {
+	home := t.TempDir()
+	os.Setenv("WARD_HOME", home)
+	defer os.Unsetenv("WARD_HOME")
+
+	// Warm up the schema/migration once. Each `ward` process opens the DB once
+	// in real life; we mirror that by opening the 8 independent stores
+	// SEQUENTIALLY (so Init/migrate don't race each other), then race only the
+	// claim INSERTs — which is exactly the cross-process scenario we're testing.
+	stores := make([]*Store, 8)
+	for i := range stores {
+		s, err := Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		stores[i] = s
+	}
+	defer func() {
+		for _, s := range stores {
+			s.DB.Close()
+		}
+	}()
+
+	var wins, conflicts int32
+	var wg sync.WaitGroup
+	for _, s := range stores {
+		wg.Add(1)
+		go func(s *Store) {
+			defer wg.Done()
+			_, conflict, err := s.ClaimTopic("topicX", "", "racer", "")
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if conflict {
+				atomic.AddInt32(&conflicts, 1)
+			} else {
+				atomic.AddInt32(&wins, 1)
+			}
+		}(s)
+	}
+	wg.Wait()
+
+	if got := atomic.LoadInt32(&wins); got != 1 {
+		t.Fatalf("exactly one claim must win, got %d", got)
+	}
+	if got := atomic.LoadInt32(&conflicts); got != 7 {
+		t.Fatalf("rest must conflict, got %d", got)
+	}
+	// And only one active claim exists on disk.
+	s, _ := Open()
+	defer s.DB.Close()
+	ids, _ := s.ActiveClaimIDs("topicX", "")
+	if len(ids) != 1 {
+		t.Fatalf("expected 1 active claim on disk, got %v", ids)
+	}
+}
+
+// TestClaimReleaseAndReclaim checks release frees the unique slot so the topic
+// can be re-claimed, and that a second distinct claim on the same topic is
+// blocked until then.
+func TestClaimReleaseAndReclaim(t *testing.T) {
+	home := t.TempDir()
+	os.Setenv("WARD_HOME", home)
+	defer os.Unsetenv("WARD_HOME")
+	s, _ := Open()
+	defer s.DB.Close()
+
+	if _, conflict, err := s.ClaimTopic("t1", "", "a", ""); err != nil || conflict {
+		t.Fatalf("first claim should win (conflict=%v err=%v)", conflict, err)
+	}
+	if _, conflict, _ := s.ClaimTopic("t1", "", "b", ""); !conflict {
+		t.Fatal("second claim on same topic must conflict")
+	}
+	if n, err := s.ReleaseClaim("t1", ""); err != nil || n != 1 {
+		t.Fatalf("release must free exactly one, got n=%d err=%v", n, err)
+	}
+	if ids, _ := s.ActiveClaimIDs("t1", ""); len(ids) != 0 {
+		t.Fatalf("no active claim after release, got %v", ids)
+	}
+	// A different agent can now reclaim the freed topic.
+	if _, conflict, _ := s.ClaimTopic("t1", "", "c", ""); conflict {
+		t.Fatal("reclaim after release must succeed")
 	}
 }

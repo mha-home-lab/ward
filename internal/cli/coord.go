@@ -141,34 +141,28 @@ func claimAddCmd() *cobra.Command {
 			}
 			defer s.DB.Close()
 
-			overlap := activeClaims(s, topic, project)
-			if len(overlap) > 0 {
-				msg := fmt.Sprintf("claim overlap on %q: %v", topic, overlap)
-				if strict {
-					return failErr(fmt.Errorf("%s", msg))
-				}
-				printLine("WARN: " + msg)
-			}
-
 			expires := ""
 			if ttl > 0 {
 				expires = time.Now().UTC().Add(time.Duration(ttl) * time.Minute).Format("2006-01-02T15:04:05Z")
 			}
-			a := store.Artifact{
-				Kind: "claim", Summary: topic,
-				Content:   fmt.Sprintf("agent=%s expires=%s", by, expires),
-				Tags:      []string{"claim", topic, project},
-				Status:    "accepted",
-				CreatedBy: by,
-				Ceremony:  "light",
-				Local:     true,
-			}
-			id, err := s.UpsertArtifact(a)
+
+			// Atomic acquisition: the unique index on (claim_topic, project)
+			// is the arbiter, so two processes racing on the same topic cannot
+			// both win. conflict => someone else holds it (or an expired-but-
+			// unreleased claim still blocks — tracked as an open risk in
+			// broker.md).
+			id, conflict, err := s.ClaimTopic(topic, project, by, expires)
 			if err != nil {
 				return failErr(err)
 			}
-			if expires != "" {
-				_ = s.SetExpires(id, expires)
+			if conflict {
+				existing, _ := s.ActiveClaimIDs(topic, project)
+				msg := fmt.Sprintf("claim overlap on %q: %v", topic, existing)
+				if strict {
+					return failErr(fmt.Errorf("%s", msg))
+				}
+				printLine("WARN: " + msg)
+				return nil
 			}
 			printLine(fmt.Sprintf("claimed %q -> %s (by %s)", topic, id, by))
 			return nil
@@ -196,14 +190,14 @@ func claimReleaseCmd() *cobra.Command {
 				return failErr(err)
 			}
 			defer s.DB.Close()
-			released := activeClaims(s, topic, project)
-			for _, id := range released {
-				_ = s.Supersede(id, "", "claim released")
+			n, err := s.ReleaseClaim(topic, project)
+			if err != nil {
+				return failErr(err)
 			}
-			if len(released) == 0 {
+			if n == 0 {
 				printLine("no active claim on " + topic)
 			} else {
-				printLine("released: " + strings.Join(released, " "))
+				printLine(fmt.Sprintf("released %d claim(s) on %s", n, topic))
 			}
 			return nil
 		},
@@ -250,24 +244,15 @@ func claimListCmd() *cobra.Command {
 	return c
 }
 
-// activeClaims returns ids of accepted, non-expired claims matching topic
-// (empty = any) and project (empty = any).
+// activeClaims returns ids of active (claim_topic set, accepted) claims matching
+// topic (empty = any) and project (empty = any). The unique index guarantees at
+// most one per (topic, project).
 func activeClaims(s *store.Store, topic, project string) []string {
-	all, err := s.ListArtifacts("accepted", "claim", project, 100)
+	ids, err := s.ActiveClaimIDs(topic, project)
 	if err != nil {
 		return nil
 	}
-	var out []string
-	for _, a := range all {
-		if claimExpired(a) {
-			continue
-		}
-		if topic != "" && claimTopic(a) != topic {
-			continue
-		}
-		out = append(out, a.ID)
-	}
-	return out
+	return ids
 }
 
 // claimTopic is the topic tag (the second tag: ["claim", topic, project]).

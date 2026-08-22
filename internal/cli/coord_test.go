@@ -26,14 +26,19 @@ func TestClaimLifecycle(t *testing.T) {
 	os.Setenv("WARD_HOME", home)
 	t.Cleanup(func() { os.Unsetenv("WARD_HOME") })
 
+	// Two different topics -> two active claims (atomic acquire).
 	execCmd(claimAddCmd(), t, []string{"auth"}, map[string]string{"by": "a1", "ttl": "30"})
-	// duplicate topic warns (advisory) but proceeds
-	execCmd(claimAddCmd(), t, []string{"auth"}, map[string]string{"by": "a2"})
-
+	execCmd(claimAddCmd(), t, []string{"oauth"}, map[string]string{"by": "a2", "ttl": "30"})
 	s, _ := store.Open()
 	defer s.DB.Close()
-	if got := activeClaims(s, "auth", ""); len(got) != 2 {
+	if got := activeClaims(s, "", ""); len(got) != 2 {
 		t.Fatalf("expected 2 active claims, got %v", got)
+	}
+
+	// Same topic by another agent conflicts (advisory WARN, not a 2nd claim).
+	execCmd(claimAddCmd(), t, []string{"auth"}, map[string]string{"by": "a3"})
+	if got := activeClaims(s, "auth", ""); len(got) != 1 {
+		t.Fatalf("duplicate topic must not create a 2nd active claim, got %v", got)
 	}
 
 	// strict rejects overlap
@@ -41,7 +46,7 @@ func TestClaimLifecycle(t *testing.T) {
 	if err := addS.Flags().Set("strict", "true"); err != nil {
 		t.Fatal(err)
 	}
-	if err := addS.Flags().Set("by", "a3"); err != nil {
+	if err := addS.Flags().Set("by", "a4"); err != nil {
 		t.Fatal(err)
 	}
 	addS.SetArgs([]string{"auth"})
@@ -49,9 +54,13 @@ func TestClaimLifecycle(t *testing.T) {
 		t.Fatal("strict claim add must error on overlap")
 	}
 
+	// release frees exactly the topic's claim; unrelated survives.
 	execCmd(claimReleaseCmd(), t, []string{"auth"}, map[string]string{})
 	if got := activeClaims(s, "auth", ""); len(got) != 0 {
 		t.Fatalf("release must clear claims, got %v", got)
+	}
+	if got := activeClaims(s, "", ""); len(got) != 1 {
+		t.Fatalf("unrelated claim should survive, got %v", got)
 	}
 }
 

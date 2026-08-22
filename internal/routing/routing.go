@@ -40,6 +40,11 @@ type Inputs struct {
 	Verify     string // verified | stale | error | unknown
 	Contention bool
 	Escalation int // 0..MaxEscalation; >max => reject
+	// DeclaredTier is a node's declared minimum tier (the `tier:` field in a
+	// workflow). It is a FLOOR: the router never selects below it. Empty = pure
+	// inference (v0.3.0). Even a memory-hit+verified cheap case cannot drop below
+	// the declared tier. An invalid value is treated as no floor.
+	DeclaredTier string
 }
 
 func tierIndex(t Tier) int {
@@ -121,11 +126,6 @@ func Route(in Inputs) Decision {
 		t = escTier
 	}
 
-	ceremony := "light"
-	if t == TierStrong || in.Contention || in.NodeKind == "approval" {
-		ceremony = "full"
-	}
-
 	reason := "cheap+verified possible"
 	if !in.MemoryHit {
 		reason = "memory miss -> cannot use cheap"
@@ -137,6 +137,24 @@ func Route(in Inputs) Decision {
 	}
 	if escalated {
 		reason += fmt.Sprintf("; escalated to %s after %d failure(s)", t, in.Escalation)
+	}
+
+	// Declared tier is a hard FLOOR applied last: nothing computed above may
+	// drop the selection below what the node author declared as the minimum
+	// capable tier. This is the admission key parallel agents match against.
+	if in.DeclaredTier != "" {
+		dt := Tier(in.DeclaredTier)
+		if di := tierIndex(dt); di > 0 { // ignore invalid declared tiers
+			if di > tierIndex(t) {
+				reason += fmt.Sprintf("; declared tier floor -> %s", dt)
+			}
+			t = maxTier(t, dt)
+		}
+	}
+
+	ceremony := "light"
+	if t == TierStrong || in.Contention || in.NodeKind == "approval" {
+		ceremony = "full"
 	}
 
 	return Decision{
