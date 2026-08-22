@@ -37,10 +37,10 @@ func memoryCmd() *cobra.Command {
 
 func memoryPutCmd() *cobra.Command {
 	var kind, summary, content, tags, verifyCmd, verifyKind, project, by, ceremony string
-	var imported bool
+	var imported, local bool
 	c := &cobra.Command{
 		Use:   "put",
-		Short: "store a memory artifact (light ceremony auto-accepts)",
+		Short: "store a memory artifact (light ceremony auto-accepts; NOT store-local by default)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
@@ -56,11 +56,19 @@ func memoryPutCmd() *cobra.Command {
 			if ceremony == "" {
 				ceremony = "light"
 			}
+			// D0.3 trust boundary: an artifact's verify_cmd is only ever executed
+			// for store-local artifacts. `put` is the agent/human injection path,
+			// so it is guilty by default — its verify_cmd is NOT executed until an
+			// operator explicitly marks it trusted with --local (or --by human).
+			// This blocks an agent from gaining silent code execution by writing a
+			// malicious verify_cmd and letting verify/tick/route run it.
+			localTrust := local || strings.EqualFold(by, "human")
+			isLocal := localTrust && !imported
 			a := store.Artifact{
 				Kind: kind, Summary: summary, Content: content,
 				Tags:  splitCSV(tags), Status: "proposed",
 				CreatedBy: by, Project: project,
-				VerifyCmd: verifyCmd, VerifyKind: verifyKind, Local: !imported, Ceremony: ceremony,
+				VerifyCmd: verifyCmd, VerifyKind: verifyKind, Local: isLocal, Ceremony: ceremony,
 			}
 			id, err := s.UpsertArtifact(a)
 			if err != nil {
@@ -75,9 +83,9 @@ func memoryPutCmd() *cobra.Command {
 				status = "accepted"
 			}
 			if jsonOut {
-				printJSON(map[string]string{"id": id, "status": status, "ceremony": ceremony})
+				printJSON(map[string]string{"id": id, "status": status, "ceremony": ceremony, "local": fmt.Sprintf("%v", isLocal)})
 			} else {
-				printLine("stored " + id + " (" + status + ", " + ceremony + ")")
+				printLine("stored " + id + " (" + status + ", " + ceremony + ", local=" + fmt.Sprintf("%v", isLocal) + ")")
 			}
 			return nil
 		},
@@ -92,6 +100,7 @@ func memoryPutCmd() *cobra.Command {
 	c.Flags().StringVar(&by, "by", "agent", "creator name")
 	c.Flags().StringVar(&ceremony, "ceremony", "light", "light (auto-accept) | full")
 	c.Flags().BoolVar(&imported, "imported", false, "mark as imported (not store-local; verify not executed)")
+	c.Flags().BoolVar(&local, "local", false, "mark as store-local/trusted so its verify_cmd is executed by verify/tick/route (explicit trust; default false)")
 	return c
 }
 
