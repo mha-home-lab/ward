@@ -12,7 +12,7 @@ import (
 )
 
 func initCmd() *cobra.Command {
-	var scaffold bool
+	var scaffold, docs bool
 	c := &cobra.Command{
 		Use:   "init",
 		Short: "initialize the ward store (sqlite + schema)",
@@ -27,23 +27,70 @@ func initCmd() *cobra.Command {
 			} else {
 				printLine("ward initialized at " + s.Home)
 			}
+			// --scaffold writes a real, runnable default workflow (not a spec
+			// skeleton), so a fresh Go repo can: ward run start
+			// --workflow workflows/default.yaml --auto-approve.
 			if scaffold {
-				if err := scaffoldSpecs("."); err != nil {
+				if err := scaffoldWorkflow("."); err != nil {
+					return failErr(err)
+				}
+			}
+			// --docs (gated, not default) writes the WARD-style markdown. Kept
+			// off the default path so init stays about making work runnable.
+			if docs {
+				if err := scaffoldDocs("."); err != nil {
 					return failErr(err)
 				}
 			}
 			return nil
 		},
 	}
-	c.Flags().BoolVar(&scaffold, "scaffold", false, "also create .spec/ and .arch/ skeletons in the current directory")
+	c.Flags().BoolVar(&scaffold, "scaffold", false, "also write workflows/default.yaml (runnable linear DAG) in the current directory")
+	c.Flags().BoolVar(&docs, "docs", false, "also write .spec/blueprint.md and .arch/tasks.md skeletons")
 	return c
 }
 
-// scaffoldSpecs writes WARD's spec convention into the current project: a
-// .spec/blueprint.md and an .arch/tasks.md, each with the Status|Domain|Version
-// header table, so the project can self-document the way WARD does. Idempotent:
-// existing files are left untouched.
-func scaffoldSpecs(dir string) error {
+// defaultWorkflowYAML is a linear, runnable DAG: start -> test (go test) -> done.
+const defaultWorkflowYAML = `name: default
+nodes:
+  - id: start
+    kind: channel
+  - id: test
+    kind: test
+    run: "go test ./..."
+  - id: done
+    kind: channel
+edges:
+  - {from: start, to: test}
+  - {from: test, to: done}
+`
+
+// writeIfMissing creates path (mkdir -p its dir) only if absent, so scaffolding
+// is idempotent and never clobbers a user's existing file.
+func writeIfMissing(path, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); err == nil {
+		printLine("exists (skipped): " + path)
+		return nil
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return err
+	}
+	printLine("created: " + path)
+	return nil
+}
+
+// scaffoldWorkflow writes workflows/default.yaml if missing — a real workflow a
+// new repo can run immediately, not a documentation stub.
+func scaffoldWorkflow(dir string) error {
+	return writeIfMissing(filepath.Join(dir, "workflows", "default.yaml"), defaultWorkflowYAML)
+}
+
+// scaffoldDocs writes WARD's spec convention into the current project (gated
+// behind --docs). Idempotent: existing files are left untouched.
+func scaffoldDocs(dir string) error {
 	blueprint := `# blueprint — ` + filepath.Base(dir) + ` design blueprint
 
 | | |
@@ -85,24 +132,10 @@ Anything unresolved or deliberately deferred.
 ## Scope
 What this tasklog covers and what it deliberately excludes.
 `
-	files := map[string]string{
-		filepath.Join(dir, ".spec", "blueprint.md"): blueprint,
-		filepath.Join(dir, ".arch", "tasks.md"):     tasks,
+	if err := writeIfMissing(filepath.Join(dir, ".spec", "blueprint.md"), blueprint); err != nil {
+		return err
 	}
-	for path, content := range files {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return err
-		}
-		if _, err := os.Stat(path); err == nil {
-			printLine("exists (skipped): " + path)
-			continue
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			return err
-		}
-		printLine("created: " + path)
-	}
-	return nil
+	return writeIfMissing(filepath.Join(dir, ".arch", "tasks.md"), tasks)
 }
 
 func memoryCmd() *cobra.Command {

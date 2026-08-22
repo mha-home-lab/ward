@@ -55,7 +55,7 @@ errors). CLI-first; MCP/TUI are deferred (blueprint non-goals).
 
 ```
 ward
-├── init [--root .] [--scaffold]          # --scaffold also writes .spec/ and .arch/ skeletons
+├── init [--root .] [--scaffold] [--docs] # --scaffold writes workflows/default.yaml; --docs writes .spec/.arch skeletons
 ├── validate
 ├── run <workflow> [--title T]        # alias: intake
 ├── resume <run_id>

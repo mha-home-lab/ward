@@ -555,8 +555,9 @@ non-goals). Spec-first: `.spec/broker.md` written before any code.
   `ward doctor` (`legacy_claims` count of accepted `kind=claim` rows with
   `claim_topic IS NULL`); `Store.LegacyClaimCount` + `TestLegacyClaimCount`.
   Backfilling old claims left undone (operator can see/clear them).
-- An expired-but-unreleased claim still blocks re-claim (the index is static); a
-  `tick`-style sweep that nulls `claim_topic` on expired claims is deferred.
+- **Expired-but-unreleased claim blocking re-claim — RESOLVED (v0.4.x).** `Store.SweepExpiredClaims` (run by `ward tick`) now nulls `claim_topic` on
+  claims whose `expires_at` has passed, so they no longer occupy their slot.
+  `TestSweepExpiredClaims` + `TestClaimExpiredThenTickFrees` prove re-claim works.
 - Topic granularity for work items (`<runID>:<nodeID>` proposed) left to the
   broker design.
 
