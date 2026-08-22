@@ -158,6 +158,28 @@ func (s *Store) CompleteTask(id, by string) error {
 	return nil
 }
 
+// TakeTask transfers (or acquires) a task's claim: a dead session's claimed
+// work must be recoverable, or one crash wedges the item forever. Explicit
+// attribution replaces the previous holder; the escalation count survives so
+// the floor history is preserved.
+func (s *Store) TakeTask(id, by string) (Task, error) {
+	res, err := s.DB.Exec(`UPDATE tasks SET status='claimed', claimed_by=?, claimed_at=?, updated_at=?
+		WHERE id=? AND status IN ('open','claimed')`, by, nowISO(), nowISO(), id)
+	if err != nil {
+		return Task{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Task{}, fmt.Errorf("task %s is %s (not takeable)", id, func() string {
+			t, err := s.GetTask(id)
+			if err != nil {
+				return "unknown"
+			}
+			return t.Status
+		}())
+	}
+	return s.GetTask(id)
+}
+
 // FailTask releases a claimed task back into the pool with its admission floor
 // bumped one tier (cross-process escalation). Past strong there is no higher
 // tier: the task is rejected for a human, never looped.

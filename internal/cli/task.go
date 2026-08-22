@@ -16,9 +16,46 @@ import (
 // capture, close. Failure bumps the floor so the item re-enters the pool for a
 // more capable agent; past strong it is rejected for a human, never looped.
 func taskCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "task", Short: "claimable work items: add/next/run/list/done/fail/workflow"}
-	cmd.AddCommand(taskAddCmd(), taskNextCmd(), taskRunCmd(), taskListCmd(), taskDoneCmd(), taskFailCmd(), taskWorkflowCmd())
+	cmd := &cobra.Command{Use: "task", Short: "claimable work items: add/next/run/take/list/done/fail/workflow"}
+	cmd.AddCommand(taskAddCmd(), taskNextCmd(), taskRunCmd(), taskTakeCmd(), taskListCmd(), taskDoneCmd(), taskFailCmd(), taskWorkflowCmd())
 	return cmd
+}
+
+// taskTakeCmd recovers work from a dead session: a claimed task whose agent
+// vanished must be takeable, or one crash wedges the item forever. Explicit
+// attribution — the new holder is on record.
+func taskTakeCmd() *cobra.Command {
+	var by string
+	c := &cobra.Command{
+		Use:   "take <id>",
+		Short: "take over a task's claim (recover from a dead session, or acquire an open one)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return failErr(errNeedID)
+			}
+			if by == "" {
+				return failErr(fmt.Errorf("--by <agent-name> is required"))
+			}
+			s, err := store.Open()
+			if err != nil {
+				return failErr(err)
+			}
+			defer s.DB.Close()
+			t, err := s.TakeTask(args[0], by)
+			if err != nil {
+				return failErr(err)
+			}
+			if jsonOut {
+				printJSON(t)
+			} else {
+				printTask(t)
+				printLine("execute it: ward task run " + t.ID)
+			}
+			return nil
+		},
+	}
+	c.Flags().StringVar(&by, "by", "", "agent name taking the claim (required)")
+	return c
 }
 
 func taskAddCmd() *cobra.Command {

@@ -197,11 +197,19 @@ func (w *Workflow) Save(path string) error {
 // start -> work -> done. The work node carries the task's run command (if any)
 // and its declared tier floor, so executing it routes exactly like any other
 // node while auto-capture records the result.
+//
+// The node id is PER-TASK ("work-<taskID>"), never a shared constant: capture
+// tags derive from the node id, and a shared "work" tag would let one task's
+// captured result vouch as verified context for every other task's node —
+// false cheap routes across unrelated work (found live during dogfooding:
+// a healthz capture vouched for a mandate-idempotency node whose acceptance
+// check then passed without the feature existing).
 func TaskWorkflow(taskID, title, kind, run, verifyCmd string) *Workflow {
 	if kind == "" || kind == "channel" {
 		kind = "default"
 	}
-	work := Node{ID: "work", Kind: kind}
+	nodeID := "work-" + strings.TrimPrefix(taskID, "task-")
+	work := Node{ID: nodeID, Kind: kind}
 	if run != "" {
 		work.Run = run
 	} else if verifyCmd != "" && kind == "test" {
@@ -210,7 +218,7 @@ func TaskWorkflow(taskID, title, kind, run, verifyCmd string) *Workflow {
 	w := &Workflow{
 		Name:  "task-" + strings.TrimPrefix(taskID, "task-"),
 		Nodes: []Node{{ID: "start", Kind: "channel"}, work, {ID: "done", Kind: "channel"}},
-		Edges: []Edge{{From: "start", To: "work"}, {From: "work", To: "done"}},
+		Edges: []Edge{{From: "start", To: nodeID}, {From: nodeID, To: "done"}},
 	}
 	return w
 }

@@ -27,8 +27,26 @@ func NewRoot() *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.PersistentFlags().BoolVar(&jsonOut, "json", false, "emit JSON instead of human text")
-	root.AddCommand(briefCmd(), initCmd(), memoryCmd(), verifyCmd(), routeCmd(), routerCmd(), runCmd(), captureCmd(), taskCmd(), explainCmd(), rejectCmd(), doctorCmd(), workflowCmd(), tickCmd())
+	root.AddCommand(briefCmd(), initCmd(), memoryCmd(), verifyCmd(), routeCmd(), routerCmd(), runCmd(), captureCmd(), taskCmd(), explainCmd(), rejectCmd(), doctorCmd(), workflowCmd(), tickCmd(), versionCmd())
 	return root
+}
+
+// versionCmd exists because agents type `ward version`, not `ward --version`,
+// and a silent exit-1 on a stale/unknown binary is exactly how binary drift
+// goes unnoticed (found the hard way during dogfooding).
+func versionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "print the ward version",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if jsonOut {
+				printJSON(map[string]string{"version": Version})
+			} else {
+				printLine("ward version " + Version)
+			}
+			return nil
+		},
+	}
 }
 
 func printJSON(v any) {

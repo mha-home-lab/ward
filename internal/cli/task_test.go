@@ -55,7 +55,10 @@ func TestTaskBrokerFlow(t *testing.T) {
 	}
 	found := false
 	for _, n := range wf.Nodes {
-		if n.ID == "work" && n.Run == "true" {
+		// Node ids are PER-TASK ("work-<id>") so capture tags never collide
+		// across tasks — a shared "work" tag let one task's result vouch for
+		// another's node (dogfood regression).
+		if strings.HasPrefix(n.ID, "work-") && n.Run == "true" {
 			found = true
 		}
 	}
@@ -173,7 +176,7 @@ func TestTaskRunCompletesAndCaptures(t *testing.T) {
 	caps, _ := s2.SearchArtifacts("work", "", "", 5)
 	found := false
 	for _, a := range caps {
-		if tagsContain(a.Tags, "work") && a.Status == "accepted" && a.Local {
+		if tagsContain(a.Tags, "work-"+strings.TrimPrefix(id, "task-")) && a.Status == "accepted" && a.Local {
 			found = true
 		}
 	}
@@ -226,6 +229,55 @@ func TestTaskRunFailureReleasesAtHigherFloor(t *testing.T) {
 	dossiers, _ := s2.SearchArtifacts("reject:"+r.ID, "", "", 5)
 	if len(dossiers) == 0 {
 		t.Fatal("expected dossier for rejected task run")
+	}
+}
+
+func TestTaskTakeRecoversDeadSessionClaim(t *testing.T) {
+	t.Setenv("WARD_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	execCmd(taskAddCmd(), t, []string{"orphaned work"}, nil)
+	next := taskNextCmd()
+	if err := next.Flags().Set("by", "dead-agent"); err != nil {
+		t.Fatal(err)
+	}
+	if err := next.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := store.Open()
+	ts, _ := s.ListTasks("claimed", 10)
+	id := ts[0].ID
+	s.DB.Close()
+
+	// A different agent takes over the orphaned claim.
+	take := taskTakeCmd()
+	if err := take.Flags().Set("by", "successor"); err != nil {
+		t.Fatal(err)
+	}
+	take.SetArgs([]string{id})
+	if err := take.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	s2, _ := store.Open()
+	defer s2.DB.Close()
+	got, _ := s2.GetTask(id)
+	if got.ClaimedBy != "successor" || got.Status != "claimed" {
+		t.Fatalf("take must transfer the claim: %+v", got)
+	}
+
+	// Done/rejected tasks are not takeable.
+	doneCmd := taskDoneCmd()
+	doneCmd.SetArgs([]string{id})
+	if err := doneCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	take2 := taskTakeCmd()
+	if err := take2.Flags().Set("by", "vulture"); err != nil {
+		t.Fatal(err)
+	}
+	take2.SetArgs([]string{id})
+	if err := take2.Execute(); err == nil {
+		t.Fatal("taking a done task must error")
 	}
 }
 

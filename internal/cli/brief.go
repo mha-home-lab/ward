@@ -37,6 +37,11 @@ func briefCmd() *cobra.Command {
 
 			b := brief{}
 			b.Topic = topic
+			// Self-identification: an agent reading this output must be able to
+			// detect a stale binary or a wrong store without trusting anything
+			// else (found the hard way: agents hunt PATH and find old builds).
+			b.Version = Version
+			b.Store = s.Home
 
 			// 1. Live sweep: drift caught now is a wrong route prevented later.
 			var changes []verifyChange
@@ -132,6 +137,8 @@ func briefCmd() *cobra.Command {
 
 // brief is the structured bootstrap report (--json shape).
 type brief struct {
+	Version       string              `json:"version"`
+	Store         string              `json:"store"`
 	Topic         string              `json:"topic"`
 	Checked       int                 `json:"reverified"`
 	Drift         int                 `json:"drift"`
@@ -222,6 +229,7 @@ func nextActions(b brief) []string {
 
 func printHumanBrief(b brief) {
 	fmt.Println("== ward brief ==")
+	fmt.Printf("ward %s | store: %s\n", b.Version, b.Store)
 	fmt.Printf("swept: re-verified=%d drift=%d expired-claims-freed=%d\n", b.Checked, b.Drift, b.ClaimsExpired)
 	for _, ch := range b.Changes {
 		fmt.Printf("  drift %s: %s -> %s (%s)\n", ch["id"], ch["before"], ch["after"], ch["detail"])

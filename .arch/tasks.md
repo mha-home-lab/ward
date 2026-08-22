@@ -696,3 +696,65 @@ next brief reflected everything.
    Evidence of thesis: verified artifacts routing subsequent runs cheap;
    doomed work terminating in a dossier rather than looping.
 
+## v0.5.y — dogfood session on secure-bank: findings and fixes (2026-08-22)
+
+Ran the real thing instead of a toy sandbox: five opencode sessions
+(hy3-free / mimo-v2.5-free / nemotron-3-ultra-free as cheap/mid/strong)
+executed the ward protocol on `../secure-bank`, seeded with five REAL tasks
+(gaps read from the codebase, acceptance checks in `run:`).
+
+### Data generated (store: secure-bank/.ward)
+
+- 4 tasks closed done with real landed code, committed per task with agent +
+  model attribution: `/healthz` endpoint (cheap/hy3), suite-green confirmation
+  (cheap/hy3), `TestStatement` coverage — 41 lines, 4 cases (mid/mimo),
+  mandate idempotency + `TestMandateIdempotency` (strong/nemotron, resumed
+  after an interrupted session).
+- 1 BLOCKED task honestly bounced: webhook-on-tick failed its check at every
+  tier, engine rejected after 3 attempts, task re-entered pool at floor mid,
+  dossier written. No invented work.
+- Store end state: 8 accepted artifacts, 6 verified; routing_decisions carry
+  honest miss→mid and hit→cheap paths; observed-file logs match actual diffs.
+
+### Findings (each fixed in ward same-day)
+
+1. **Stale-binary drift.** The first small agent couldn't find `ward` on PATH,
+   hunted, found an OLD build in /tmp, and silently followed it (commands were
+   no-ops). Protocol output must be self-identifying.
+   **Fix:** `brief` now prints `ward <version> | store: <path>`; explicit
+   `ward version` subcommand (cobra only wires `--version`; agents type the
+   subcommand); ward installed at a real PATH location.
+2. **Cross-task capture vouching (thesis violation).** All generated task
+   workflows named their node `work`, so every task's capture shared one tag;
+   unrelated verified captures (healthz, statement test) counted as verified
+   context for a mandate-idempotency node — routing it CHEAP on false
+   evidence. Compounded by a weak acceptance check (`grep IdempotencyKey`
+   matched pre-existing transfer code): atlas-1 "completed" without touching
+   mandates. **The audit surface caught it**: `explain` listed irrelevant
+   evidence; observed-files showed zero source changes vs empty `git diff`.
+   **Fixes:** per-task node ids (`work-<taskID>`) so tags never collide across
+   tasks (orchestration.TaskWorkflow); false capture superseded with honest
+   reason; task re-seeded with a FALSIFIABLE check (`go test -run
+   TestMandateIdempotency`) — lesson: acceptance checks must fail before the
+   work exists.
+3. **Dead-session claim wedge.** atlas-2 died mid-task; its claimed item was
+   stuck forever (tasks had no recovery path).
+   **Fix:** `ward task take <id> --by <agent>` transfers/acquires claims
+   explicitly; done/rejected tasks are not takeable. Test:
+   `TestTaskTakeRecoversDeadSessionClaim`.
+
+### Lessons for authoring pool tasks
+
+- The acceptance check IS the specification. It must be impossible to satisfy
+  without the deliverable (prefer "a test named X passes" over grepping for
+  identifiers that may already exist).
+- One concept per task; strong-floor tasks need their test named in the title.
+- Blocked work belongs in the pool too — it generates honest escalation data
+  and terminates in a dossier instead of fake success.
+
+### State
+
+secure-bank HEAD carries four ward-pooled commits. Pool: one open task
+(webhook, floor mid, blocked) awaiting a human decision or receiver URL.
+Ward fixes committed alongside this entry.
+
