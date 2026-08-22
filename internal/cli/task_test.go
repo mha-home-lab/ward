@@ -130,6 +130,119 @@ func TestTickHealSupersedesDriftedArtifacts(t *testing.T) {
 	}
 }
 
+func TestTaskRunCompletesAndCaptures(t *testing.T) {
+	t.Setenv("WARD_HOME", t.TempDir())
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	execCmd(taskAddCmd(), t, []string{"run tests"}, map[string]string{
+		"tier": "cheap", "kind": "test", "run": "true",
+	})
+	next := taskNextCmd()
+	if err := next.Flags().Set("by", "agent-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := next.Flags().Set("max-tier", "cheap"); err != nil {
+		t.Fatal(err)
+	}
+	if err := next.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, _ := store.Open()
+	ts, _ := s.ListTasks("claimed", 10)
+	if len(ts) != 1 {
+		t.Fatalf("expected one claimed task, got %d", len(ts))
+	}
+	id := ts[0].ID
+	s.DB.Close()
+
+	run := taskRunCmd()
+	run.SetArgs([]string{id})
+	if err := run.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	s2, _ := store.Open()
+	defer s2.DB.Close()
+	got, _ := s2.GetTask(id)
+	if got.Status != "done" {
+		t.Fatalf("task must be done after successful run, got %s", got.Status)
+	}
+	// The bridge must capture the result so the NEXT session routes cheap.
+	caps, _ := s2.SearchArtifacts("work", "", "", 5)
+	found := false
+	for _, a := range caps {
+		if tagsContain(a.Tags, "work") && a.Status == "accepted" && a.Local {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("task run must auto-capture a store-local artifact tagged work")
+	}
+	// The generated workflow must be recorded on the task.
+	if got.WorkflowPath == "" {
+		t.Fatal("task workflow path must be recorded")
+	}
+}
+
+func TestTaskRunFailureReleasesAtHigherFloor(t *testing.T) {
+	t.Setenv("WARD_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+
+	execCmd(taskAddCmd(), t, []string{"impossible"}, map[string]string{
+		"tier": "cheap", "run": "test -f .does-not-exist",
+	})
+	next := taskNextCmd()
+	if err := next.Flags().Set("by", "agent-b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := next.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, _ := store.Open()
+	ts, _ := s.ListTasks("claimed", 10)
+	id := ts[0].ID
+	s.DB.Close()
+
+	run := taskRunCmd()
+	run.SetArgs([]string{id})
+	if err := run.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	s2, _ := store.Open()
+	defer s2.DB.Close()
+	got, _ := s2.GetTask(id)
+	if got.Status != "open" || got.TierFloor != "mid" || got.Escalation != 1 {
+		t.Fatalf("failed task must re-enter pool one tier higher: %+v", got)
+	}
+	// And a dossier exists for the rejected run.
+	r, _ := s2.LatestRun()
+	if r.Status != "rejected" {
+		t.Fatalf("engine should have rejected the doomed run, got %s", r.Status)
+	}
+	dossiers, _ := s2.SearchArtifacts("reject:"+r.ID, "", "", 5)
+	if len(dossiers) == 0 {
+		t.Fatal("expected dossier for rejected task run")
+	}
+}
+
+func TestTaskRunRequiresClaimedTask(t *testing.T) {
+	t.Setenv("WARD_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	execCmd(taskAddCmd(), t, []string{"unpulled"}, nil)
+	s, _ := store.Open()
+	ts, _ := s.ListTasks("open", 10)
+	s.DB.Close()
+	run := taskRunCmd()
+	run.SetArgs([]string{ts[0].ID})
+	if err := run.Execute(); err == nil {
+		t.Fatal("task run on an unclaimed task must error (pull first)")
+	}
+}
+
 func TestRejectDossierAndExplain(t *testing.T) {
 	t.Setenv("WARD_HOME", t.TempDir())
 	t.Chdir(t.TempDir())

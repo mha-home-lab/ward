@@ -87,11 +87,37 @@ func TestUpsertAgentBlockIdempotentAndRefreshes(t *testing.T) {
 func TestUpsertAgentBlockRefusesHalfMarkers(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "AGENTS.md")
-	if err := os.WriteFile(p, []byte("junk\n"+docStart+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(p, []byte("junk\n"+docStartPrefix+" v1 -->\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := upsertAgentBlock(p); err == nil {
 		t.Fatal("half-present markers must be refused, not guessed at")
+	}
+}
+
+// A v1-marked file (older ward) must be refreshed to the current block in
+// place — exactly one block afterwards, old version string gone.
+func TestUpsertAgentBlockUpgradesOlderVersions(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "AGENTS.md")
+	old := "# AGENTS.md\n\n<!-- ward:protocol v1 -->\nOLD PROTOCOL v1 CONTENT\n<!-- /ward:protocol -->\n"
+	if err := os.WriteFile(p, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	action, err := upsertAgentBlock(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if action != "refreshed" {
+		t.Fatalf("want refreshed, got %q", action)
+	}
+	body, _ := os.ReadFile(p)
+	s := string(body)
+	if strings.Contains(s, "OLD PROTOCOL v1 CONTENT") || strings.Contains(s, "ward:protocol v1") {
+		t.Fatalf("v1 content/marker must be replaced:\n%s", s)
+	}
+	if !strings.Contains(s, docStart) || strings.Count(s, docStartPrefix) != 1 {
+		t.Fatalf("exactly one current block expected:\n%s", s)
 	}
 }
 

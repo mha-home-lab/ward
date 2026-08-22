@@ -98,12 +98,19 @@ model:
   could run arbitrary code on `verify`. Proposal: verify runs only on artifacts
   the local user/agent explicitly wrote (not on imported/remote ones) in v1;
   document the trust boundary. Risk: supply-chain via shared memory store.
-- **"Fresh enough" window.** Default verify TTL — per-artifact or global?
-  Proposal: global default (config), overridable per artifact. Open.
+- **"Fresh enough" window — DECIDED (v0.5.x): verify-on-session-start replaces
+  TTL.** The freshness-TTL mechanism (item 4) is deliberately left unbuilt:
+  `ward brief` re-runs every local artifact's verify_cmd LIVE at session start,
+  and routing live-verifies again before trusting. A stored `verify_status` is
+  therefore never older than the current session's sweep when it matters, so an
+  age-based demotion would add a knob without changing any decision.
+  `verify_at` remains recorded for audit. Revisit-when: stores grow to where a
+  full sweep per brief costs more than staleness risk (hundreds of artifacts
+  with expensive checks).
 - **Verify cost vs. benefit.** Running `build`/`test` per artifact on every
-  `resume`/`route` could be slow. Proposal: cache by `verify_at` + content hash
-  of the touched files; skip if unchanged. Needs the `node_state` cache
-  (storage.md). Open.
+  brief/route could be slow at scale; if that bites, cache by `verify_at` +
+  content hash of touched files rather than reintroducing a TTL knob.
+  Revisit with the TTL decision above.
 - **Git as backend.** ciao's per-step `git snapshot` is dropped; git here is only
   an *optional* verify backend (diff/hash), not a run-log. Confirm no other
   consumer needs the snapshot. (Same risk noted in orchestration.md.)

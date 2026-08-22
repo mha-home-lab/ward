@@ -12,11 +12,12 @@ import (
 // taskCmd is the broker-lite loop: a store-native pool of claimable work items.
 // `add` is the producer (a sentence plus flags, no YAML), `next` is the fleet
 // consumer side: an agent pulls only work whose tier floor fits its budget,
-// atomically. Failure bumps the floor so the item re-enters the pool for a
+// atomically. `run` executes a pulled item end-to-end — generate, execute,
+// capture, close. Failure bumps the floor so the item re-enters the pool for a
 // more capable agent; past strong it is rejected for a human, never looped.
 func taskCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "task", Short: "claimable work items: add/next/list/done/fail/workflow"}
-	cmd.AddCommand(taskAddCmd(), taskNextCmd(), taskListCmd(), taskDoneCmd(), taskFailCmd(), taskWorkflowCmd())
+	cmd := &cobra.Command{Use: "task", Short: "claimable work items: add/next/run/list/done/fail/workflow"}
+	cmd.AddCommand(taskAddCmd(), taskNextCmd(), taskRunCmd(), taskListCmd(), taskDoneCmd(), taskFailCmd(), taskWorkflowCmd())
 	return cmd
 }
 
@@ -90,16 +91,106 @@ func taskNextCmd() *cobra.Command {
 				printJSON(t)
 			} else {
 				printTask(t)
-				printLine("suggested next steps:")
-				printLine("  ward task workflow " + t.ID + "   # generate a runnable single-node workflow")
-				printLine("  ward run start --workflow <that file>")
-				printLine("  on success: ward task done " + t.ID + "; on failure: ward task fail " + t.ID)
+				printLine("execute it: ward task run " + t.ID)
 			}
 			return nil
 		},
 	}
 	c.Flags().StringVar(&by, "by", "", "agent name taking the work (required)")
 	c.Flags().StringVar(&maxTier, "max-tier", "strong", "this agent's budget ceiling; never offered work above it (cheap|mid|strong)")
+	return c
+}
+
+// taskRunCmd is the execution bridge: a pulled item becomes finished work in
+// ONE command. It generates the single-node workflow, runs it through the
+// engine (routing, live verify, escalation), auto-captures the result on
+// success, and closes the task. On engine failure it releases the task back
+// into the pool one tier higher (FailTask); on rejection past strong it stops
+// for a human. The agent never threads ids between commands or retries by hand.
+func taskRunCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "run <id>",
+		Short: "execute a claimed task end-to-end: generate workflow, run, capture, close",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return failErr(errNeedID)
+			}
+			s, err := store.Open()
+			if err != nil {
+				return failErr(err)
+			}
+			defer s.DB.Close()
+			t, err := s.GetTask(args[0])
+			if err != nil {
+				return failErr(err)
+			}
+			if t.Status == "open" {
+				return failErr(fmt.Errorf("task %s is not claimed: pull it first with ward task next --by <your-name>", t.ID))
+			}
+			if t.Status != "claimed" {
+				return failErr(fmt.Errorf("task %s is %s, not executable", t.ID, t.Status))
+			}
+
+			path := "workflows/task-" + strings.TrimPrefix(t.ID, "task-") + ".yaml"
+			wf := orchestration.TaskWorkflow(t.ID, t.Title, t.Kind, t.Run, t.VerifyCmd)
+			if err := wf.Save(path); err != nil {
+				return failErr(err)
+			}
+			if err := s.SetTaskWorkflow(t.ID, path); err != nil {
+				return failErr(err)
+			}
+
+			eng := &orchestration.Engine{Store: s, AutoApprove: true}
+			runID, err := eng.StartWorkflow(wf)
+			if err != nil {
+				return failErr(err)
+			}
+			autoCapture(s, wf, runID)
+			r, err := s.LoadRun(runID)
+			if err != nil {
+				return failErr(err)
+			}
+
+			out := map[string]string{"task": t.ID, "run": runID, "run_status": r.Status}
+			switch r.Status {
+			case "completed":
+				if err := s.CompleteTask(t.ID, t.ClaimedBy); err != nil {
+					return failErr(err)
+				}
+				out["task_status"] = "done"
+			case "rejected":
+				ft, err := s.FailTask(t.ID)
+				if err != nil {
+					return failErr(err)
+				}
+				out["task_status"] = ft.Status
+				out["tier_floor"] = ft.TierFloor
+				if ft.Status == "rejected" {
+					out["dossier"] = "ward reject " + runID
+				}
+			default:
+				// awaiting_approval or paused: keep the claim, surface next step.
+				out["task_status"] = "claimed"
+				out["resume"] = "ward run resume " + runID + " --auto-approve"
+			}
+			if jsonOut {
+				printJSON(out)
+			} else {
+				printLine(fmt.Sprintf("task %s: run %s -> %s", t.ID, runID, r.Status))
+				switch out["task_status"] {
+				case "done":
+					printLine("task closed as done; result captured for the next session")
+				case "open":
+					printLine("task re-entered pool at floor " + out["tier_floor"])
+				case "rejected":
+					printLine("escalation budget spent — needs a human; dossier: " + out["dossier"])
+				default:
+					printLine("task stays claimed; resume: " + out["resume"])
+				}
+			}
+			return nil
+		},
+	}
 	return c
 }
 

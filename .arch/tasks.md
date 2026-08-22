@@ -642,3 +642,57 @@ retry budget resolved), cli.md (shipped command tree).
 - Verify TTL window ("fresh enough") still unspeced — brief/tick re-verify on
   every session start, which currently makes TTL moot in practice.
 
+## v0.5.x — dogfood readiness for the small-agent simulation (2026-08-22)
+
+Goal: a smaller model agent must be able to run the ENTIRE protocol with no
+human correction. Three gaps were closed before the simulation starts.
+
+### Shipped
+
+- **`ward task run <id>` — the execution bridge (broker.md §4).** One command:
+  generate workflow → engine execute → auto-capture on success → close task as
+  done; on rejection, release one tier higher into the pool (FailTask); on
+  `awaiting_approval`, keep the claim + print resume hint. Requires claimed
+  state (`open` errors with "pull it first"). The small agent's whole loop is
+  now: `brief` → `task next --by me --max-tier B` → `task run <id>` → repeat →
+  `memory handoff`. Tests: `TestTaskRunCompletesAndCaptures`,
+  `TestTaskRunFailureReleasesAtHigherFloor`, `TestTaskRunRequiresClaimedTask`.
+- **Brief surfaces the task pool.** Open tasks (id/floor/title) in human +
+  JSON output; next-actions direct budget holders to `task next`. An agent that
+  follows AGENTS.md alone cannot miss work.
+- **Agent protocol block v2** (marker `ward:protocol v2`). Adds the pool loop
+  ("WORK FROM THE POOL", never retry failed tasks yourself) and the dossier
+  pointer. Marker detection is now by PREFIX (`<!-- ward:protocol`), so older
+  v1-marked files refresh in place instead of duplicating blocks. Test:
+  `TestUpsertAgentBlockUpgradesOlderVersions`.
+- **`scripts/sandbox.sh`.** Repeatable dogfood sandbox: scratch Go project,
+  ward store, protocol injection, and five seeded tasks — four pass at
+  cheap/mid floors (capture → cheap-reuse data), one doomed to fail through the
+  full escalation chain into rejection + dossier. Usage printed at the end;
+  the agent gets ONE instruction line.
+
+### Validated end-to-end (manual dry run, /tmp/wsb)
+
+brief showed the pool → cheap pull → task run completed+captured (3 verified
+artifacts after sweep) → doomed task pulled cheap, rejected by the engine after
+cheap→mid→strong, re-entered the pool at floor mid with dossier written →
+next brief reflected everything.
+
+### Decisions recorded (open items closed)
+
+- Agent registry: pull-time `--max-tier` stands; revisit when ≥2 agents poll
+  the same store routinely under stable identities (broker.md).
+- Verify TTL: verify-on-session-start replaces TTL demotion entirely; revisit
+  only if full-sweep cost ever exceeds staleness risk (verification.md).
+
+### Simulation protocol (how to run the dogfood session)
+
+1. `go build -o ward-bin . && ./scripts/sandbox.sh /tmp/ward-sim`
+2. Spawn the smaller agent in that directory with one line:
+   "You are <name>, budget <tier>. Follow AGENTS.md exactly."
+3. After the session: inspect `ward account`-style data via
+   `routing_decisions` (`ward explain <run> <node>`), captures (`memory list`),
+   drift/escalations (`tick`), dossiers (`reject <run>`), and the pool state.
+   Evidence of thesis: verified artifacts routing subsequent runs cheap;
+   doomed work terminating in a dossier rather than looping.
+

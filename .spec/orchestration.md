@@ -59,8 +59,9 @@ selection to the router (routing.md) instead of a hard-coded provider.
   (`start → work → done`) from a dispatch-pool task; `Workflow.Save` writes YAML
   and re-validates by loading it back (a saved workflow must be runnable). The
   work node carries the task's `run:` so execution, routing, and auto-capture
-  behave exactly as for hand-authored workflows. This is the bridge that lets a
-  pulled pool item reach the engine without YAML authoring (broker.md §4).
+  behave exactly as for hand-authored workflows. Agents normally never touch
+  this directly — `ward task run <id>` (broker.md §4) composes generate +
+  execute + capture + close in one step.
 - **Reject dossier (v0.5).** When the escalation budget is spent — both the
   in-loop path (`failNode`) and the routing-reject path — the engine writes a
   store-local accepted artifact (`kind: error`, tags `dossier` +

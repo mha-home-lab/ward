@@ -74,10 +74,12 @@ One command at session start, replacing the old "run tick, then context" two-ste
 1. Runs the tick sweep live (re-verify local artifacts, free expired claims).
 2. Reports prior knowledge for an optional topic — compact pointers only
    (id/kind/summary/tags/verify_status), never full content.
-3. Surfaces open runs (`running` / `awaiting_approval`), active claims, and a
-   store health snapshot (accepted/verified/proposed counts).
-4. Ends with imperative next actions (`ward run approve <id> <node>`, "reuse
-   verified context", "topic X is claimed by Y", or "store clean: proceed").
+3. Surfaces open runs (`running` / `awaiting_approval`), active claims, the
+   dispatch pool (open tasks with floors — broker.md §4), and store health
+   (accepted/verified/proposed counts).
+4. Ends with imperative next actions (`ward run approve <id> <node>`,
+   `ward task next --by <name> --max-tier <budget>`, "reuse verified context",
+   "topic X is claimed by Y", or "store clean: proceed").
 
 `--json` emits the full structured report. Brief is the machine-readable answer
 to "where do I pick up?" without replaying history — the injection point every

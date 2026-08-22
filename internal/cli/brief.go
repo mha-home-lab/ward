@@ -90,7 +90,19 @@ func briefCmd() *cobra.Command {
 				})
 			}
 
-			// 6. Health snapshot.
+			// 6. The dispatch pool — open work an agent can pull right now.
+			openTasks, err := s.ListTasks("open", 100)
+			if err != nil {
+				return failErr(err)
+			}
+			b.OpenTasks = make([]map[string]string, 0, len(openTasks))
+			for _, t := range openTasks {
+				b.OpenTasks = append(b.OpenTasks, map[string]string{
+					"id": t.ID, "title": t.Title, "tier_floor": t.TierFloor,
+				})
+			}
+
+			// 7. Health snapshot.
 			accepted, _ := s.ListArtifacts("accepted", "", "", 1000)
 			proposed, _ := s.ListArtifacts("proposed", "", "", 1000)
 			verified := 0
@@ -128,6 +140,7 @@ type brief struct {
 	Knowledge     []knowledgeHit      `json:"knowledge,omitempty"`
 	OpenRuns      []map[string]string `json:"open_runs,omitempty"`
 	Claims        []map[string]string `json:"active_claims,omitempty"`
+	OpenTasks     []map[string]string `json:"open_tasks,omitempty"`
 	Health        map[string]int      `json:"health"`
 	Next          []string            `json:"next"`
 }
@@ -173,6 +186,9 @@ func nextActions(b brief) []string {
 	}
 	if b.Drift > 0 {
 		next = append(next, fmt.Sprintf("%d previously-verified artifact(s) went STALE: treat them as misses, do not trust their summaries", b.Drift))
+	}
+	if len(b.OpenTasks) > 0 {
+		next = append(next, fmt.Sprintf("%d open task(s) in the pool: ward task next --by <your-name> --max-tier <budget>", len(b.OpenTasks)))
 	}
 	if b.Topic != "" {
 		verified, unverified := 0, 0
@@ -223,6 +239,12 @@ func printHumanBrief(b brief) {
 		fmt.Println("open runs:")
 		for _, r := range b.OpenRuns {
 			fmt.Printf("  %s %s (%s) waiting=%s\n", r["id"], r["workflow"], r["status"], r["waiting"])
+		}
+	}
+	if len(b.OpenTasks) > 0 {
+		fmt.Println("task pool (open):")
+		for _, t := range b.OpenTasks {
+			fmt.Printf("  %s floor=%s %s\n", t["id"], t["tier_floor"], t["title"])
 		}
 	}
 	if len(b.Claims) > 0 {

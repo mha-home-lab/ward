@@ -125,10 +125,18 @@ The v0.5 slice closes what §"non-goals" deferred. Store-native, no service:
 - **Lifecycle:** `ward task done <id>` closes claimed work;
   `ward task fail <id>` releases it one tier higher (§3); `ward task list
   [--status]` inspects the pool.
-- **Execution bridge:** `ward task workflow <id>` generates a runnable
-  single-node DAG (`start → work → done`, orchestration.md TaskWorkflow) with
-  the task's `run:` command, records it on the task, and prints the run command.
-  Agents compose: next → workflow → `ward run start`.
+- **Execution bridge (`ward task run <id>`, v0.5.x).** The pulled item becomes
+  finished work in ONE command: generate the single-node workflow, execute
+  through the engine (routing, live verify, escalation), auto-capture on
+  success, close the task as `done`. On engine rejection, FailTask releases it
+  back into the pool one tier higher — the agent never retries by hand or
+  threads ids between commands. Requires a *claimed* task (`open` → error
+  "pull it first"); on `awaiting_approval` the claim is kept with a resume hint.
+  This is the dogfood-critical path: small agents follow two commands total
+  (`next` → `run`).
+- **Pool visibility.** `ward brief` lists open tasks (id/floor/title) and its
+  next-actions direct budget-holding agents to `task next`. An agent that only
+  follows AGENTS.md + brief cannot miss available work.
 
 Guardrail held: advisory-of-work, exclusive-of-topic. The pool never assigns
 work; agents pull, and the atomic pull guarantees one owner.
@@ -143,10 +151,14 @@ work; agents pull, and the atomic pull guarantees one owner.
 
 ## Open questions / risks
 
-- **Agent registry table vs `--max-tier` flag (v0.5 decision).** Budgets are
-  currently declared at pull time (`--max-tier`), not persisted in the idle
-  `agents` table. A persistent registry pays off only when many agents poll
-  repeatedly under one identity; revisit if fleet usage materializes.
+- **Agent registry table vs `--max-tier` flag — DECIDED (v0.5.x): pull-time
+  budget stands.** Budgets are declared at pull time (`--max-tier`), not
+  persisted in the idle `agents` table. Rationale: a registry only pays off
+  when many long-lived agents poll repeatedly under one identity; until fleet
+  evidence exists, the flag is one fewer moving part and cannot drift from
+  reality (an agent's budget is true at the moment it asks for work).
+  Revisit-when: two or more agents routinely poll the same store across
+  sessions with stable identities.
 
 - **Legacy claims (operationally resolved, recorded here).** Claims created
   before this migration have `claim_topic = NULL`, so the unique index does

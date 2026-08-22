@@ -100,6 +100,28 @@ func TestBriefEmptyStoreHasCleanSlateAction(t *testing.T) {
 	}
 }
 
+func TestBriefSurfacesOpenTaskPool(t *testing.T) {
+	t.Setenv("WARD_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+
+	s, _ := store.Open()
+	if _, err := s.CreateTask(store.Task{Title: "do a thing", TierFloor: "mid"}); err != nil {
+		t.Fatal(err)
+	}
+	s.DB.Close()
+
+	bc := briefCmd()
+	if err := bc.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	// Guidance must point at the pool pull command.
+	out := brief{Health: map[string]int{}, OpenTasks: []map[string]string{{"id": "t1"}}}
+	next := nextActions(out)
+	if len(next) == 0 || !strings.Contains(next[0], "ward task next") {
+		t.Fatalf("brief must direct agents to the pool: %v", next)
+	}
+}
+
 func TestLoadWFResolvesDefaultBeforeDemo(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Chdir(dir); err != nil {

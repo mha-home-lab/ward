@@ -44,13 +44,15 @@ work. A failed `go test` is a first-class failure: the node is marked failed
 
 1. `ward brief [topic]` — one command at session start. It live-verifies every
    local claim, frees expired reservations, then reports prior knowledge, open
-   runs, active claims, and imperative next actions (`--json` for machines).
+   runs, active claims, the task pool, and imperative next actions (`--json`
+   for machines).
 2. Work arrives either as a workflow (`ward run start`) or through the dispatch
    pool: `ward task add "fix login redirect" --tier mid --run "go test ./..."`
    creates a claimable item; `ward task next --by agent-3 --max-tier mid`
-   atomically pulls the highest-floor item the agent's budget admits. Failure
-   bumps the floor one tier so a more capable agent picks it up; past `strong`
-   it is rejected for a human — never looped.
+   atomically pulls the highest-floor item the agent's budget admits; `ward
+   task run <id>` executes it end-to-end — generate, run, capture, close.
+   Failure bumps the floor one tier so a more capable agent picks it up; past
+   `strong` it is rejected for a human with a dossier — never looped.
 3. Successes are captured automatically as verified artifacts; failures
    escalate and stop. Rejected runs leave a **dossier** (`ward reject <run>`):
    tier path taken, each attempt's outcome, verified context available.
@@ -64,7 +66,12 @@ work. A failed `go test` is a first-class failure: the node is marked failed
 
 Nothing above requires human babysitting: the protocol ships inside the repo,
 the store carries the state, and `brief` tells each new session exactly where
-to pick up.
+to pick up. To watch a small model agent live the whole loop, seed a sandbox:
+
+```bash
+go build -o ward-bin . && ./scripts/sandbox.sh /tmp/ward-sim
+# then: "You are <name>, budget <tier>. cd /tmp/ward-sim and follow AGENTS.md."
+```
 
 ## Tiers: cheap, mid, rejected
 

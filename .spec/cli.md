@@ -60,6 +60,7 @@ ward
 ├── task                                    # dispatch pool (broker.md §4)
 │   ├── add <title> [--tier F] [--kind K] [--run CMD] [--verify-cmd CMD]
 │   ├── next --by AGENT [--max-tier BUDGET] # atomic pull, budget admission
+│   ├── run <id>                            # execute end-to-end: generate+run+capture+close
 │   ├── list [--status S]
 │   ├── done <id> | fail <id>               # close / release one tier higher
 │   └── workflow <id> [--out P]             # generate runnable single-node DAG
