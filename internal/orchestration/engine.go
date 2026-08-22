@@ -277,8 +277,8 @@ func (e *Engine) repo() string {
 func (e *Engine) Seed(nodeID, kind, tagKind, summary, verifyCmd, verifyKind string) {
 	a := store.Artifact{
 		Kind: tagKind, Summary: summary, Content: "seeded for " + nodeID,
-		Tags:       []string{nodeID, kind},
-		Status:     "accepted", CreatedBy: "seed", Local: true,
+		Tags:   []string{nodeID, kind},
+		Status: "accepted", CreatedBy: "seed", Local: true,
 		VerifyKind: verifyKind, VerifyCmd: verifyCmd, Ceremony: "light",
 	}
 	id, err := e.Store.UpsertArtifact(a)

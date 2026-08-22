@@ -128,6 +128,12 @@ func (s *Store) SetLocal(id string) error {
 	return err
 }
 
+// SetExpires sets the TTL expiry for an artifact (used by advisory claims).
+func (s *Store) SetExpires(id, expiresAt string) error {
+	_, err := s.DB.Exec(`UPDATE artifacts SET expires_at=? WHERE id=?`, expiresAt, id)
+	return err
+}
+
 func nullStr(s sql.NullString) string {
 	if s.Valid {
 		return s.String
@@ -156,6 +162,26 @@ func (s *Store) LoadRun(id string) (RunState, error) {
 		Scan(&r.ID, &r.WorkflowName, &wp, &r.Status, &wa, &ci, &cer, &r.CreatedAt, &r.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return r, fmt.Errorf("no run %s", id)
+	}
+	if err != nil {
+		return r, err
+	}
+	r.WorkflowPath = nullStr(wp)
+	r.WaitingApproval, r.CurrentItem, r.Ceremony = nullStr(wa), nullStr(ci), nullStr(cer)
+	return r, nil
+}
+
+// LatestRun returns the most recently created run, or an error if none exist.
+// Used to resolve a workflow path when a command is invoked without --workflow.
+func (s *Store) LatestRun() (RunState, error) {
+	var r RunState
+	var wa, ci, cer, wp sql.NullString
+	err := s.DB.QueryRow(`SELECT id, workflow_name, workflow_path, status, waiting_approval_id,
+		current_item_id, ceremony_level, created_at, updated_at FROM runs
+		ORDER BY created_at DESC, rowid DESC LIMIT 1`).
+		Scan(&r.ID, &r.WorkflowName, &wp, &r.Status, &wa, &ci, &cer, &r.CreatedAt, &r.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return r, fmt.Errorf("no runs yet")
 	}
 	if err != nil {
 		return r, err

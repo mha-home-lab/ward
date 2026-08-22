@@ -110,9 +110,17 @@ ward tick
   logs declared-vs-git-diff as an *observation only* (never a routing input).
   Nodes may carry a `run:` shell command that the engine executes (real adapter).
 - `internal/cli` — `init`, `memory` (put/get/search/list/promote/supersede/
-  handoff), `verify` (`--all`, `--trust`), `route`, `router`, `run`
-  (start/status/approve/resume), `tick`, `doctor`, `workflow`. Every command
+  handoff/context/stale/claim), `verify` (`--all`, `--trust`), `route`, `router`,
+  `run` (start/status/approve/resume), `tick`, `doctor`, `workflow`. Every command
   supports `--json` and emits one-line errors.
+
+  - `ward memory context <query>` — chef's compact injection block: ids, kind,
+    summary, tags, verify_status (no full content).
+  - `ward memory stale [--days N] [--mark <id>]` — surface stale/error/unknown
+    artifacts (and rarely-used ones with `--days`); `--mark` sets one stale.
+  - `ward memory claim add <topic> [--by a] [--ttl m] [--strict]` — advisory
+    topic reservation (no locking); warns on overlap, errors with `--strict`.
+    `claim release <topic>` / `claim list` manage active claims.
 
 The OIDC-login workflow ships as a **linear** DAG used to exercise the router
 end-to-end (including the live-verify gate against `README.md`); it does not

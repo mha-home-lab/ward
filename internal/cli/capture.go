@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mha-home-lab/ward/internal/orchestration"
@@ -49,16 +50,16 @@ func captureNode(s *store.Store, wf *orchestration.Workflow, node orchestration.
 	}
 
 	a := store.Artifact{
-		Kind:        kind,
-		Summary:     summary,
-		Content:     content,
-		Tags:        []string{tag},
-		Status:      "accepted",
-		CreatedBy:   "ward",
-		VerifyCmd:   verifyCmd,
-		VerifyKind:  verifyKind,
-		Ceremony:    "light",
-		Local:       true,
+		Kind:       kind,
+		Summary:    summary,
+		Content:    content,
+		Tags:       []string{tag},
+		Status:     "accepted",
+		CreatedBy:  "ward",
+		VerifyCmd:  verifyCmd,
+		VerifyKind: verifyKind,
+		Ceremony:   "light",
+		Local:      true,
 	}
 	id, err := s.UpsertArtifact(a)
 	if err != nil {
@@ -72,10 +73,21 @@ func captureNode(s *store.Store, wf *orchestration.Workflow, node orchestration.
 }
 
 // inferVerify returns (verifyCmd, verifyKind, content) for a node, with no
-// override applied. A test node verifies via `go test ./...`; a node that
-// declares a concrete produced file verifies via its sha256; glob produces are
-// skipped (hash of a glob is meaningless) and left for an explicit flag.
+// override applied.
+//
+// v0.3 inference nit: verify_cmd defaults from the node's OWN run: (shell), so a
+// captured claim records what actually ran (a grep node captures "grep ...", not
+// a generic go test). `go test ./...` is only the fallback when run: is empty AND
+// the node is a test. A concrete `produces` falls back to a sha256 hash (glob
+// produces are expanded to a concrete file; a hash of a glob is meaningless).
 func inferVerify(node orchestration.Node, summary, contentOverride string) (string, string, string) {
+	if node.Run != "" {
+		c := contentOverride
+		if c == "" {
+			c = fmt.Sprintf("Auto-captured result of node %s after successful run (ran: %s).", node.ID, node.Run)
+		}
+		return node.Run, "shell", c
+	}
 	if node.Kind == "test" {
 		c := contentOverride
 		if c == "" {
@@ -86,7 +98,11 @@ func inferVerify(node orchestration.Node, summary, contentOverride string) (stri
 	if len(node.Produces) > 0 {
 		path := node.Produces[0]
 		if strings.ContainsAny(path, "*?[") {
-			return "", "", contentOverride
+			if matches, _ := filepath.Glob(path); len(matches) > 0 {
+				path = matches[0]
+			} else {
+				return "", "", contentOverride
+			}
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {

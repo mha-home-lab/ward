@@ -7,11 +7,11 @@ import (
 
 func TestModelForTier(t *testing.T) {
 	cases := map[string]string{
-		"cheap":   "opencode/hy3-free",
-		"mid":     "opencode/mimo-v2.5-free",
-		"strong":  "opencode/nemotron-3-ultra-free",
-		"bogus":   "opencode/hy3-free",
-		"":        "opencode/hy3-free",
+		"cheap":  "opencode/hy3-free",
+		"mid":    "opencode/mimo-v2.5-free",
+		"strong": "opencode/nemotron-3-ultra-free",
+		"bogus":  "opencode/hy3-free",
+		"":       "opencode/hy3-free",
 	}
 	for tier, want := range cases {
 		if got := ModelForTier(tier); got != want {

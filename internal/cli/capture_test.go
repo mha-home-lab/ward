@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/mha-home-lab/ward/internal/orchestration"
@@ -21,7 +22,7 @@ func TestCaptureNodeDefaultsTagAndInfersVerify(t *testing.T) {
 	}
 	defer s.DB.Close()
 
-	// test node -> tag=node id, verify inferred as `go test ./...`
+	// test node with a run: -> tag=node id, verify inferred from the node's run:
 	wf := &orchestration.Workflow{Name: "t", Nodes: []orchestration.Node{
 		{ID: "impl", Kind: "test", Run: "go test ./..."},
 	}}
@@ -36,8 +37,8 @@ func TestCaptureNodeDefaultsTagAndInfersVerify(t *testing.T) {
 	if len(a.Tags) != 1 || a.Tags[0] != "impl" {
 		t.Fatalf("default tag must be the node id, got %v", a.Tags)
 	}
-	if a.VerifyCmd != "go test ./..." || a.VerifyKind != "test" {
-		t.Fatalf("test node must infer go test verify, got %q/%q", a.VerifyCmd, a.VerifyKind)
+	if a.VerifyCmd != "go test ./..." || a.VerifyKind != "shell" {
+		t.Fatalf("test node with run: must capture its run: as shell verify, got %q/%q", a.VerifyCmd, a.VerifyKind)
 	}
 	if a.Status != "accepted" || a.Ceremony != "light" {
 		t.Fatalf("capture must be accepted/light, got %s/%s", a.Status, a.Ceremony)
@@ -60,6 +61,65 @@ func TestCaptureNodeDefaultsTagAndInfersVerify(t *testing.T) {
 	a2, _ := s.GetArtifact(id2)
 	if a2.Tags[0] != "custom" || a2.VerifyCmd != "grep -rq x README.md" {
 		t.Fatalf("override not honored: %+v", a2)
+	}
+}
+
+// v0.3 inference nit: a test node whose work is a grep must capture THAT grep as
+// its verify_cmd (shell), not a generic `go test ./...`.
+func TestCaptureNodeInfersRunNotGoTest(t *testing.T) {
+	home := t.TempDir()
+	os.Setenv("WARD_HOME", home)
+	t.Cleanup(func() { os.Unsetenv("WARD_HOME") })
+
+	s, err := store.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB.Close()
+
+	wf := &orchestration.Workflow{Name: "t", Nodes: []orchestration.Node{
+		{ID: "verify", Kind: "test", Run: "grep -rq WARD README.md"},
+	}}
+	id, err := captureNode(s, wf, wf.Nodes[0], "", "", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := s.GetArtifact(id)
+	if a.VerifyCmd != "grep -rq WARD README.md" || a.VerifyKind != "shell" {
+		t.Fatalf("must capture node run: as shell verify, got %q/%q", a.VerifyCmd, a.VerifyKind)
+	}
+}
+
+// produces globs are expanded to a concrete file for the hash fallback.
+func TestCaptureNodeGlobProduces(t *testing.T) {
+	home := t.TempDir()
+	os.Setenv("WARD_HOME", home)
+	t.Cleanup(func() { os.Unsetenv("WARD_HOME") })
+
+	s, err := store.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB.Close()
+
+	// a *.go glob in the temp home resolves to the file we write here
+	glob := home + "/*.go"
+	if err := os.WriteFile(home+"/main.go", []byte("package main"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wf := &orchestration.Workflow{Name: "t", Nodes: []orchestration.Node{
+		{ID: "build", Kind: "context", Produces: []string{glob}},
+	}}
+	id, err := captureNode(s, wf, wf.Nodes[0], "", "", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := s.GetArtifact(id)
+	if a.VerifyKind != "hash" {
+		t.Fatalf("glob produces must expand and infer hash verify, got %q", a.VerifyKind)
+	}
+	if !strings.HasPrefix(a.VerifyCmd, "sha256::") {
+		t.Fatalf("hash verify_cmd must name the expanded file, got %q", a.VerifyCmd)
 	}
 }
 
@@ -175,4 +235,3 @@ func TestMemoryPutLocalTrust(t *testing.T) {
 		}
 	}
 }
-

@@ -10,10 +10,10 @@ import (
 
 // Workflow is the v1 DAG definition (subset of ciao's node graph).
 type Workflow struct {
-	Name  string  `yaml:"name"`
-	Path  string  // file the workflow was loaded from (empty if in-memory)
-	Nodes []Node  `yaml:"nodes"`
-	Edges []Edge  `yaml:"edges"`
+	Name  string `yaml:"name"`
+	Path  string // file the workflow was loaded from (empty if in-memory)
+	Nodes []Node `yaml:"nodes"`
+	Edges []Edge `yaml:"edges"`
 }
 
 type Node struct {

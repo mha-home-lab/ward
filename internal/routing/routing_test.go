@@ -4,12 +4,12 @@ import "testing"
 
 func TestRoute(t *testing.T) {
 	cases := []struct {
-		name    string
-		in      Inputs
-		want    Tier
-		cerem   string
-		reject  bool
-		escal   bool
+		name   string
+		in     Inputs
+		want   Tier
+		cerem  string
+		reject bool
+		escal  bool
 	}{
 		{"channel no-memory is cheap base but miss forces mid", Inputs{NodeKind: "channel"}, TierMid, "light", false, false},
 		{"test verified+mem -> cheap", Inputs{NodeKind: "test", MemoryHit: true, Verify: "verified"}, TierCheap, "light", false, false},

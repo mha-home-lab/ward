@@ -65,7 +65,10 @@ func routerCmd() *cobra.Command {
 			}
 			defer s.DB.Close()
 			if wfPath == "" {
-				wfPath = "workflows/oidc-login.yaml"
+				wfPath, err = resolveRouterWF(s, seed || seedStale)
+				if err != nil {
+					return failErr(err)
+				}
 			}
 			wf, err := orchestration.LoadWorkflow(wfPath)
 			if err != nil {
@@ -94,10 +97,10 @@ func routerCmd() *cobra.Command {
 			summary := measure(decs)
 			if jsonOut {
 				printJSON(map[string]any{
-					"run_id":        runID,
-					"workflow":      wf.Name,
-					"decisions":     decs,
-					"measurement":   summary,
+					"run_id":      runID,
+					"workflow":    wf.Name,
+					"decisions":   decs,
+					"measurement": summary,
 				})
 			} else {
 				printLine("run " + runID + " (" + wf.Name + ")")
@@ -124,6 +127,25 @@ func routerCmd() *cobra.Command {
 	c.Flags().BoolVar(&seedStale, "seed-stale", false, "seed a stale accepted artifact (capture path)")
 	c.Flags().BoolVar(&autoApprove, "auto-approve", false, "auto-approve approval nodes")
 	return c
+}
+
+// resolveRouterWF picks the workflow for `ward router` without blindly
+// hardcoding a path. Priority: explicit --workflow; then the seed demo workflow
+// (when seeding, since --seed builds an in-memory artifact against oidc-login);
+// then the most recent run's persisted workflow_path; finally the canonical demo
+// workflow as a last resort. This means `ward router` after a real run reflects
+// that run, not always oidc-login.
+const demoWorkflow = "workflows/oidc-login.yaml"
+
+func resolveRouterWF(s *store.Store, useSeed bool) (string, error) {
+	if useSeed {
+		return demoWorkflow, nil
+	}
+	r, err := s.LatestRun()
+	if err == nil && r.WorkflowPath != "" {
+		return r.WorkflowPath, nil
+	}
+	return demoWorkflow, nil
 }
 
 type measurement struct {

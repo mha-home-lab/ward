@@ -5,41 +5,41 @@ import "fmt"
 type Tier string
 
 const (
-	TierCheap   Tier = "cheap"
-	TierMid     Tier = "mid"
-	TierStrong  Tier = "strong"
+	TierCheap  Tier = "cheap"
+	TierMid    Tier = "mid"
+	TierStrong Tier = "strong"
 )
 
 // Model registry for the v1 slice. Placeholder names; the engine records them
 // as routing decisions only (no provider calls in v1).
 var modelFor = map[Tier]string{
-	TierCheap:   "gemini-2.0-flash",
-	TierMid:     "gpt-4o-mini",
-	TierStrong:  "gpt-4o",
+	TierCheap:  "gemini-2.0-flash",
+	TierMid:    "gpt-4o-mini",
+	TierStrong: "gpt-4o",
 }
 
 const MaxEscalation = 2
 
 // Decision is the router output. Reject means escalation budget exhausted.
 type Decision struct {
-	Tier        Tier
-	Model       string
-	Ceremony    string // light | full
-	MemoryHit   bool
-	Verify      string
-	Contention  bool
-	Escalated   bool
-	Reject      bool
-	Reason      string
+	Tier       Tier
+	Model      string
+	Ceremony   string // light | full
+	MemoryHit  bool
+	Verify     string
+	Contention bool
+	Escalated  bool
+	Reject     bool
+	Reason     string
 }
 
 // Inputs drive the pure routing function.
 type Inputs struct {
-	NodeKind    string // channel | approval | test | default
-	MemoryHit   bool
-	Verify      string // verified | stale | error | unknown
-	Contention  bool
-	Escalation  int // 0..MaxEscalation; >max => reject
+	NodeKind   string // channel | approval | test | default
+	MemoryHit  bool
+	Verify     string // verified | stale | error | unknown
+	Contention bool
+	Escalation int // 0..MaxEscalation; >max => reject
 }
 
 func tierIndex(t Tier) int {

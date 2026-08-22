@@ -158,20 +158,20 @@ type RunState struct {
 	Status          string // running|awaiting_approval|completed|rejected
 	WaitingApproval string
 	CurrentItem     string
-	Ceremony       string
+	Ceremony        string
 	CreatedAt       string
 	UpdatedAt       string
 }
 
 type RunNode struct {
-	RunID        string
-	Node         string
-	Status       string // pending|ready|running|awaiting_approval|done|failed
-	Touched      []string
-	Ceremony     string
-	DeclaredObs  string // git-diff observed delta (observation only, D0.1)
-	Escalation   int    // retries already applied to this node
-	UpdatedAt    string
+	RunID       string
+	Node        string
+	Status      string // pending|ready|running|awaiting_approval|done|failed
+	Touched     []string
+	Ceremony    string
+	DeclaredObs string // git-diff observed delta (observation only, D0.1)
+	Escalation  int    // retries already applied to this node
+	UpdatedAt   string
 }
 
 type RoutingDecision struct {

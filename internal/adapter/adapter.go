@@ -14,9 +14,9 @@ import (
 // model names (gemini-2.0-flash / gpt-4o-mini / gpt-4o) are illustrative;
 // execution translates the tier to a concrete free model here.
 var TierModel = map[string]string{
-	"cheap":   "opencode/hy3-free",
-	"mid":     "opencode/mimo-v2.5-free",
-	"strong":  "opencode/nemotron-3-ultra-free",
+	"cheap":  "opencode/hy3-free",
+	"mid":    "opencode/mimo-v2.5-free",
+	"strong": "opencode/nemotron-3-ultra-free",
 }
 
 // ModelForTier returns the free opencode model for a tier, defaulting to cheap.

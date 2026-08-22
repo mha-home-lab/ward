@@ -30,8 +30,8 @@ func initCmd() *cobra.Command {
 }
 
 func memoryCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "memory", Short: "agent memory store (put/get/search/list/promote/supersede/handoff)"}
-	cmd.AddCommand(memoryPutCmd(), memoryGetCmd(), memorySearchCmd(), memoryListCmd(), memoryPromoteCmd(), memorySupersedeCmd(), memoryHandoffCmd())
+	cmd := &cobra.Command{Use: "memory", Short: "agent memory store (put/get/search/list/promote/supersede/handoff/context/stale/claim)"}
+	cmd.AddCommand(memoryPutCmd(), memoryGetCmd(), memorySearchCmd(), memoryListCmd(), memoryPromoteCmd(), memorySupersedeCmd(), memoryHandoffCmd(), memoryContextCmd(), memoryStaleCmd(), memoryClaimCmd())
 	return cmd
 }
 
@@ -66,7 +66,7 @@ func memoryPutCmd() *cobra.Command {
 			isLocal := localTrust && !imported
 			a := store.Artifact{
 				Kind: kind, Summary: summary, Content: content,
-				Tags:  splitCSV(tags), Status: "proposed",
+				Tags: splitCSV(tags), Status: "proposed",
 				CreatedBy: by, Project: project,
 				VerifyCmd: verifyCmd, VerifyKind: verifyKind, Local: isLocal, Ceremony: ceremony,
 			}
@@ -322,7 +322,7 @@ func memoryHandoffCmd() *cobra.Command {
 			handoff := map[string]any{
 				"incomplete": incomplete,
 				"summary":    fmt.Sprintf("%d proposed, %d stale, %d open runs", len(proposed), len(stale), len(runViews)),
-				"items":     items,
+				"items":      items,
 			}
 			if jsonOut {
 				printJSON(handoff)
