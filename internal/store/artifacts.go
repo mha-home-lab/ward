@@ -35,8 +35,14 @@ func (s *Store) UpsertArtifact(a Artifact) (string, error) {
 // only one active claim per (topic, project) can exist. The acquisition is a
 // single plain INSERT — not a check-then-insert — so the database, not the app,
 // is the arbiter. On a conflict (an active claim already blocks it) conflict is
-// true and the caller warns or errors under --strict; no partial claim is left.
+// true; the caller treats that as a hard error (exclusive reservation). No
+// partial claim is left.
 func (s *Store) ClaimTopic(topic, project, by, expires string) (id string, conflict bool, err error) {
+	// Normalize project to "" (never NULL) so the unique index groups all
+	// "no-project" claims together under one slot.
+	if strings.TrimSpace(project) == "" {
+		project = ""
+	}
 	id = "claim:" + sha8(topic+"|"+project+"|"+by+"|"+expires+"|"+nowISO())
 	tags, _ := json.Marshal([]string{"claim", topic, project})
 	content := fmt.Sprintf("agent=%s expires=%s", by, expires)
@@ -102,6 +108,23 @@ func (s *Store) ActiveClaimIDs(topic, project string) ([]string, error) {
 
 func isUniqueViolation(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
+// SweepExpiredClaims frees every active claim whose TTL has elapsed, so the
+// topic can be re-claimed. It clears claim_topic (the unique-index slot) and
+// marks the row superseded — the same cleanup ReleaseClaim does, but driven by
+// expiry instead of an explicit release. Without this, an un-released expired
+// claim would keep occupying its slot and block re-claim forever.
+func (s *Store) SweepExpiredClaims() (int64, error) {
+	res, err := s.DB.Exec(`UPDATE artifacts
+		SET status='superseded', superseded_at=?, superseded_reason='expired', claim_topic=NULL
+		WHERE claim_topic IS NOT NULL AND expires_at != '' AND expires_at < ?`,
+		nowISO(), nowISO())
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 // LegacyClaimCount returns the number of accepted claim artifacts that predate

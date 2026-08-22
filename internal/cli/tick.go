@@ -44,10 +44,17 @@ func tickCmd() *cobra.Command {
 					reports = append(reports, rep{a.ID, before, res.Status, res.Detail})
 				}
 			}
+			// Free expired claims so their topics can be re-claimed (the
+			// unique-index slot is released, not just the TTL blowing past).
+			swept, err := s.SweepExpiredClaims()
+			if err != nil {
+				return failErr(err)
+			}
+
 			if jsonOut {
-				printJSON(map[string]any{"checked": len(accepted), "drift": drift, "changed": reports})
+				printJSON(map[string]any{"checked": len(accepted), "drift": drift, "changed": reports, "claims_expired": swept})
 			} else {
-				printLine(fmt.Sprintf("checked %d local accepted artifacts; drift=%d", len(accepted), drift))
+				printLine(fmt.Sprintf("checked %d local accepted artifacts; drift=%d; expired claims freed=%d", len(accepted), drift, swept))
 				for _, r := range reports {
 					printLine(fmt.Sprintf("  %s %s -> %s (%s)", r.ID, r.Before, r.After, r.Detail))
 				}

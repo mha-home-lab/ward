@@ -182,6 +182,44 @@ func TestClaimReleaseAndReclaim(t *testing.T) {
 	}
 }
 
+// TestSweepExpiredClaims proves an un-released expired claim blocks re-claim
+// until tick sweeps it (clearing claim_topic), after which the topic is free.
+func TestSweepExpiredClaims(t *testing.T) {
+	home := t.TempDir()
+	os.Setenv("WARD_HOME", home)
+	defer os.Unsetenv("WARD_HOME")
+	s, _ := Open()
+	defer s.DB.Close()
+
+	past := "2000-01-01T00:00:00Z"
+	if _, conflict, err := s.ClaimTopic("foo", "", "a", past); err != nil || conflict {
+		t.Fatalf("initial claim should win (conflict=%v err=%v)", conflict, err)
+	}
+	// a second claim on the same topic is blocked while it still occupies the slot
+	if _, conflict, _ := s.ClaimTopic("foo", "", "b", ""); !conflict {
+		t.Fatal("second claim on same topic must conflict")
+	}
+	// sweep frees exactly the expired claim
+	n, err := s.SweepExpiredClaims()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("sweep should free 1 expired claim, got %d", n)
+	}
+	// now re-claimable
+	if _, conflict, _ := s.ClaimTopic("foo", "", "c", ""); conflict {
+		t.Fatal("after sweep, topic must be re-claimable")
+	}
+	// a never-expiring claim is untouched by the sweep
+	if _, conflict, _ := s.ClaimTopic("bar", "", "a", ""); conflict {
+		t.Fatal("fresh claim should win")
+	}
+	if n, _ := s.SweepExpiredClaims(); n != 0 {
+		t.Fatalf("sweep must not touch non-expired claims, freed %d", n)
+	}
+}
+
 // TestLegacyClaimCount confirms the one-time transition gap is observable: a
 // claim written WITHOUT claim_topic (as pre-v0.4 claims are) is counted as
 // legacy and stays invisible to the atomic path.

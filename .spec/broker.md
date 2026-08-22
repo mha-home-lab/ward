@@ -31,9 +31,10 @@ of scope (see non-goals).
 
 ## What's kept
 
-- The claim as **advisory** coordination (chef's coordination-001): voluntary, not
-  a hard lock. A conflict is reported (warn, or error under `--strict`); the
-  loser backs off.
+- The claim as an **exclusive reservation** (a lock): the unique index on
+  `(claim_topic, project)` enforces "at most one active claim per (topic,
+  project)" in the database. A conflict is a hard error (non-zero exit), never a
+  warning that proceeds — two `ward` processes cannot both hold the same topic.
 - The tier abstraction from `routing.md`: `cheap`/`mid`/`strong`, provider-agnostic,
   mapped to a concrete model only in `adapter.TierModel`.
 
@@ -48,8 +49,11 @@ treats `NULL`s as distinct, so the index constrains only *active* claims. A clai
 acquire is then a **single plain `INSERT`** (not `INSERT OR IGNORE`, not a
 pre-check): if an active claim already exists for `(topic, project)`, the INSERT
 fails with a unique-constraint violation and the caller treats that as the
-conflict (warn / `--strict` error). Release/supersede sets `claim_topic = NULL`,
-freeing the slot so the topic can be re-claimed.
+conflict — a hard error (`error: claim overlap on <topic>`, non-zero exit),
+never a warning that proceeds. Release/supersede sets `claim_topic = NULL`,
+freeing the slot so the topic can be re-claimed. `ward tick` also frees claims
+once their TTL has elapsed, so an un-released expired claim does not block
+re-claim forever.
 
 Why this over the check-then-insert: the invariant ("at most one active claim per
 `(topic, project)`") becomes a **database constraint**, correct under concurrent

@@ -26,7 +26,7 @@ func TestClaimLifecycle(t *testing.T) {
 	os.Setenv("WARD_HOME", home)
 	t.Cleanup(func() { os.Unsetenv("WARD_HOME") })
 
-	// Two different topics -> two active claims (atomic acquire).
+	// Two different topics -> two active claims (exclusive acquire per topic).
 	execCmd(claimAddCmd(), t, []string{"auth"}, map[string]string{"by": "a1", "ttl": "30"})
 	execCmd(claimAddCmd(), t, []string{"oauth"}, map[string]string{"by": "a2", "ttl": "30"})
 	s, _ := store.Open()
@@ -35,23 +35,17 @@ func TestClaimLifecycle(t *testing.T) {
 		t.Fatalf("expected 2 active claims, got %v", got)
 	}
 
-	// Same topic by another agent conflicts (advisory WARN, not a 2nd claim).
-	execCmd(claimAddCmd(), t, []string{"auth"}, map[string]string{"by": "a3"})
+	// Same topic by another agent is an EXCLUSIVE conflict: hard error, no 2nd claim.
+	addDup := claimAddCmd()
+	if err := addDup.Flags().Set("by", "a3"); err != nil {
+		t.Fatal(err)
+	}
+	addDup.SetArgs([]string{"auth"})
+	if err := addDup.Execute(); err == nil {
+		t.Fatal("duplicate topic claim add must error (exclusive)")
+	}
 	if got := activeClaims(s, "auth", ""); len(got) != 1 {
 		t.Fatalf("duplicate topic must not create a 2nd active claim, got %v", got)
-	}
-
-	// strict rejects overlap
-	addS := claimAddCmd()
-	if err := addS.Flags().Set("strict", "true"); err != nil {
-		t.Fatal(err)
-	}
-	if err := addS.Flags().Set("by", "a4"); err != nil {
-		t.Fatal(err)
-	}
-	addS.SetArgs([]string{"auth"})
-	if err := addS.Execute(); err == nil {
-		t.Fatal("strict claim add must error on overlap")
 	}
 
 	// release frees exactly the topic's claim; unrelated survives.
@@ -61,6 +55,36 @@ func TestClaimLifecycle(t *testing.T) {
 	}
 	if got := activeClaims(s, "", ""); len(got) != 1 {
 		t.Fatalf("unrelated claim should survive, got %v", got)
+	}
+}
+
+// Acceptance: an expired claim blocks re-claim until tick frees it.
+func TestClaimExpiredThenTickFrees(t *testing.T) {
+	home := t.TempDir()
+	os.Setenv("WARD_HOME", home)
+	t.Cleanup(func() { os.Unsetenv("WARD_HOME") })
+
+	// first claim ok
+	execCmd(claimAddCmd(), t, []string{"foo"}, map[string]string{"by": "a1"})
+	// second claim on same topic must error (exclusive)
+	dup := claimAddCmd()
+	dup.SetArgs([]string{"foo"})
+	if err := dup.Execute(); err == nil {
+		t.Fatal("first claim must make second error")
+	}
+
+	// backdate the claim's expiry directly, then tick must free it
+	s, _ := store.Open()
+	defer s.DB.Close()
+	if _, err := s.DB.Exec(`UPDATE artifacts SET expires_at='2000-01-01T00:00:00Z' WHERE claim_topic='foo'`); err != nil {
+		t.Fatal(err)
+	}
+	execCmd(tickCmd(), t, nil, map[string]string{})
+
+	// now foo can be claimed again
+	execCmd(claimAddCmd(), t, []string{"foo"}, map[string]string{"by": "a2"})
+	if got := activeClaims(s, "foo", ""); len(got) != 1 {
+		t.Fatalf("after tick, foo should be re-claimable, got %v", got)
 	}
 }
 

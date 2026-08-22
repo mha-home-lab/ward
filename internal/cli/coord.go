@@ -113,12 +113,13 @@ func memoryStaleCmd() *cobra.Command {
 	return c
 }
 
-// memoryClaimCmd is advisory topic coordination (chef's coordination-001):
-// agents voluntarily reserve a topic so two sessions don't both do the work.
-// It is advisory only — there is no locking; overlap is warned (or errored with
-// --strict) but the write still proceeds unless --strict.
+// memoryClaimCmd is an EXCLUSIVE reservation (a lock), not advisory
+// coordination. The unique index on (claim_topic, project) enforces "at most
+// one active claim per (topic, project)" in the database, so two `ward`
+// processes cannot both hold the same topic. A conflicting claim is a hard
+// error (non-zero exit), never a warning.
 func memoryClaimCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "claim", Short: "advisory topic claim (coordination; no locking)"}
+	cmd := &cobra.Command{Use: "claim", Short: "exclusive topic reservation (one active claim per topic+project)"}
 	cmd.AddCommand(claimAddCmd(), claimReleaseCmd(), claimListCmd())
 	return cmd
 }
@@ -126,10 +127,9 @@ func memoryClaimCmd() *cobra.Command {
 func claimAddCmd() *cobra.Command {
 	var by, project string
 	var ttl int
-	var strict bool
 	c := &cobra.Command{
 		Use:   "add <topic>",
-		Short: "reserve a topic (advisory); warns on overlap, errors with --strict",
+		Short: "reserve a topic exclusively (one active claim per topic+project)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(fmt.Errorf("claim add needs a topic"))
@@ -146,23 +146,15 @@ func claimAddCmd() *cobra.Command {
 				expires = time.Now().UTC().Add(time.Duration(ttl) * time.Minute).Format("2006-01-02T15:04:05Z")
 			}
 
-			// Atomic acquisition: the unique index on (claim_topic, project)
-			// is the arbiter, so two processes racing on the same topic cannot
-			// both win. conflict => someone else holds it (or an expired-but-
-			// unreleased claim still blocks — tracked as an open risk in
-			// broker.md).
+			// Exclusive reservation: the unique index on (claim_topic, project)
+			// is the LOCK. A conflict means another process holds the topic; this
+			// is a hard error (non-zero exit), never a warning that proceeds.
 			id, conflict, err := s.ClaimTopic(topic, project, by, expires)
 			if err != nil {
 				return failErr(err)
 			}
 			if conflict {
-				existing, _ := s.ActiveClaimIDs(topic, project)
-				msg := fmt.Sprintf("claim overlap on %q: %v", topic, existing)
-				if strict {
-					return failErr(fmt.Errorf("%s", msg))
-				}
-				printLine("WARN: " + msg)
-				return nil
+				return failErr(fmt.Errorf("claim overlap on %s", topic))
 			}
 			printLine(fmt.Sprintf("claimed %q -> %s (by %s)", topic, id, by))
 			return nil
@@ -171,7 +163,6 @@ func claimAddCmd() *cobra.Command {
 	c.Flags().StringVar(&by, "by", "agent", "claiming agent")
 	c.Flags().StringVar(&project, "project", "", "project lens")
 	c.Flags().IntVar(&ttl, "ttl", 0, "claim TTL in minutes (0 = no expiry)")
-	c.Flags().BoolVar(&strict, "strict", false, "error instead of warn on overlap")
 	return c
 }
 
