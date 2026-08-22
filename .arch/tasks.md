@@ -483,3 +483,16 @@ blocker and the D0.3 trust gap was the blocker for multi-agent use. With all of
 them closed, there are no known open items in the v0.1–v0.2 line or the review.
 
 
+
+## Release history
+
+- **v0.1.0** (8dc6fa8) — thesis freeze: verify-gated routing, live verify-on-read,
+  escalation-on-failure, Context column, idempotent migrations.
+- **v0.2.0** (1a612ef) — result capture (thin B): auto-write accepted artifacts
+  on run/resume so the next session routes cheap without hand-typed YAML.
+- **v0.3.0** (d2dd871) — usable-tool freeze: model adapter wired (drives real
+  opencode free models at the routed tier; failures escalate like shell
+  failures), D0.3 trust boundary closed (put defaults non-local; --local/--by
+  human required), chef ergonomics (claim/context/stale), v0.3 inference nit
+  fixed, migration test strengthened to a true pre-columns DB. No known open
+  items remain.
