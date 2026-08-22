@@ -416,5 +416,19 @@ Still open (tracked, not for v0.1/v0.2): the four leftovers below.
 - **`go-test-demo` `verify` node is a `run: grep`, not `verification.Run` on an
   artifact.** The naming will confuse the next reader.
 
+### Inference nit (tracked, do not fix — v0.3 candidate, not v0.2.1)
+
+`inferVerify` maps `kind: test -> go test ./...`. Too coarse: `go-test-demo`'s
+`verify` node is `kind: test` with `run: grep -rq WARD README.md`, so capture
+records a claim that **`go test` passes**, not that WARD is in the README. The
+second session routes cheap only because tests happen to still pass — the wrong
+claim is incidentally true.
+
+**Fix (when picked up):** default `verify_cmd` to the node's own `run:` (shell);
+only fall back to `go test ./...` when `run:` is empty. Hash-of-`produces`
+stays the non-test path. One function, `inferVerify`. Recapture note still holds:
+test-node content is stable so the claim is the `verify_cmd`; hash-node content
+carries the digest so a dirty file makes a new artifact.
+
 None of these reopen the thesis.
 
