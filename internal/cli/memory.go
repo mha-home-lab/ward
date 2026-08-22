@@ -66,15 +66,18 @@ func memoryPutCmd() *cobra.Command {
 			if err != nil {
 				return failErr(err)
 			}
-			// Light ceremony auto-accepts (spec). Auto-accepted but unverified
-			// artifacts still cannot vote cheap until live-verified.
+			// Light ceremony auto-accepts (spec). Full ceremony stays proposed
+			// pending review. Auto-accepted but unverified artifacts still cannot
+			// vote cheap until live-verified.
+			status := "proposed"
 			if ceremony == "light" {
 				_, _ = s.Promote([]string{id}, "auto-accept (light ceremony)", by)
+				status = "accepted"
 			}
 			if jsonOut {
-				printJSON(map[string]string{"id": id, "status": "accepted", "ceremony": ceremony})
+				printJSON(map[string]string{"id": id, "status": status, "ceremony": ceremony})
 			} else {
-				printLine("stored " + id + " (accepted, " + ceremony + ")")
+				printLine("stored " + id + " (" + status + ", " + ceremony + ")")
 			}
 			return nil
 		},
@@ -109,6 +112,8 @@ func memoryGetCmd() *cobra.Command {
 			if err != nil {
 				return failErr(err)
 			}
+			// Bump used_count: this is the full-content read in the spec.
+			_ = s.BumpUsed(args[0])
 			if jsonOut {
 				printJSON(a)
 			} else {

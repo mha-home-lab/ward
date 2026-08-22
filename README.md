@@ -55,6 +55,13 @@ ward tick
 - `internal/verification` — executes `grep/build/test/hash/shell` **only** for
   store-local artifacts (imported = unknown until explicitly trusted via
   `ward verify --trust`).
+
+> **Trust boundary (both `verify_cmd` and node `run:`).** `verify_cmd` executes
+> only for store-local artifacts; imported artifacts are never executed. Node
+> `run:` commands are run verbatim via `sh -c` in the repo root with no
+> sandboxing — this is a local CLI, so only point it at repos and commands you
+> trust. A malicious `run:` (or a `verify_cmd` like `OIDC::../../etc/passwd`)
+> has the same local-file access as the user running `ward`.
 - `internal/orchestration` — DAG load/validate + engine. Before every route it
   runs `verification.Run` **live** against the repo and persists the result; only
   `verified` counts as a memory hit. Persists agent-declared `touched` sets and

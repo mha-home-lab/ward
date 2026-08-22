@@ -179,18 +179,18 @@ func (s *Store) SaveRun(r RunState) error {
 
 // UpsertRunNode inserts or updates a node's per-run state.
 func (s *Store) UpsertRunNode(n RunNode) error {
-	_, err := s.DB.Exec(`INSERT INTO run_nodes (run_id, node, status, touched, ceremony_level, declared_obs, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+	_, err := s.DB.Exec(`INSERT INTO run_nodes (run_id, node, status, touched, ceremony_level, declared_obs, escalation, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(run_id, node) DO UPDATE SET status=excluded.status,
 		touched=excluded.touched, ceremony_level=excluded.ceremony_level,
-		declared_obs=excluded.declared_obs, updated_at=excluded.updated_at`,
-		n.RunID, n.Node, n.Status, joinTags(n.Touched), n.Ceremony, n.DeclaredObs, n.UpdatedAt)
+		declared_obs=excluded.declared_obs, escalation=excluded.escalation, updated_at=excluded.updated_at`,
+		n.RunID, n.Node, n.Status, joinTags(n.Touched), n.Ceremony, n.DeclaredObs, n.Escalation, n.UpdatedAt)
 	return err
 }
 
 // LoadRunNodes returns all nodes for a run.
 func (s *Store) LoadRunNodes(runID string) ([]RunNode, error) {
-	rows, err := s.DB.Query(`SELECT run_id, node, status, touched, ceremony_level, declared_obs, updated_at
+	rows, err := s.DB.Query(`SELECT run_id, node, status, touched, ceremony_level, declared_obs, escalation, updated_at
 		FROM run_nodes WHERE run_id=? ORDER BY node`, runID)
 	if err != nil {
 		return nil, err
@@ -200,11 +200,13 @@ func (s *Store) LoadRunNodes(runID string) ([]RunNode, error) {
 	for rows.Next() {
 		var n RunNode
 		var touched, cer, obs sql.NullString
-		if err := rows.Scan(&n.RunID, &n.Node, &n.Status, &touched, &cer, &obs, &n.UpdatedAt); err != nil {
+		var esc int
+		if err := rows.Scan(&n.RunID, &n.Node, &n.Status, &touched, &cer, &obs, &esc, &n.UpdatedAt); err != nil {
 			return nil, err
 		}
 		n.Touched = parseTags(nullStr(touched))
 		n.Ceremony, n.DeclaredObs = nullStr(cer), nullStr(obs)
+		n.Escalation = esc
 		out = append(out, n)
 	}
 	return out, nil
@@ -221,17 +223,17 @@ func (s *Store) AddEvent(runID, action, node, detail string) error {
 func (s *Store) AddRoutingDecision(d RoutingDecision) error {
 	_, err := s.DB.Exec(`INSERT INTO routing_decisions
 		(run_id, node, tier, model, ceremony_level, memory_hit, verify_status,
-		 contention, escalated_from, reason, contention_inputs, created_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 contention, escalated_from, reason, context, contention_inputs, created_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		d.RunID, d.Node, d.Tier, d.Model, d.Ceremony, boolInt(d.MemoryHit), d.VerifyStatus,
-		boolInt(d.Contention), d.EscalatedFrom, d.Reason, d.ContentionJSON, d.CreatedAt)
+		boolInt(d.Contention), d.EscalatedFrom, d.Reason, d.Context, d.ContentionJSON, d.CreatedAt)
 	return err
 }
 
 // RoutingDecisionsForRun returns all decisions for a run (for measurement).
 func (s *Store) RoutingDecisionsForRun(runID string) ([]RoutingDecision, error) {
 	rows, err := s.DB.Query(`SELECT run_id, node, tier, model, ceremony_level, memory_hit,
-		verify_status, contention, escalated_from, reason, contention_inputs, created_at
+		verify_status, contention, escalated_from, reason, context, contention_inputs, created_at
 		FROM routing_decisions WHERE run_id=? ORDER BY created_at`, runID)
 	if err != nil {
 		return nil, err
@@ -241,12 +243,14 @@ func (s *Store) RoutingDecisionsForRun(runID string) ([]RoutingDecision, error) 
 	for rows.Next() {
 		var d RoutingDecision
 		var mh, con int
+		var ctx sql.NullString
 		if err := rows.Scan(&d.RunID, &d.Node, &d.Tier, &d.Model, &d.Ceremony, &mh,
-			&d.VerifyStatus, &con, &d.EscalatedFrom, &d.Reason, &d.ContentionJSON, &d.CreatedAt); err != nil {
+			&d.VerifyStatus, &con, &d.EscalatedFrom, &d.Reason, &ctx, &d.ContentionJSON, &d.CreatedAt); err != nil {
 			return nil, err
 		}
 		d.MemoryHit = mh != 0
 		d.Contention = con != 0
+		d.Context = nullStr(ctx)
 		out = append(out, d)
 	}
 	return out, nil

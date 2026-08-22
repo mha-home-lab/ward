@@ -51,6 +51,10 @@ func (e *Engine) Run(runID string, wf *Workflow) error {
 	if err != nil {
 		return err
 	}
+	escal, err := e.escalMap(runID)
+	if err != nil {
+		return err
+	}
 	for {
 		next := ""
 		for _, id := range order {
@@ -66,7 +70,7 @@ func (e *Engine) Run(runID string, wf *Workflow) error {
 			})
 			return nil
 		}
-		paused, err := e.stepNode(runID, wf, next, done)
+		paused, err := e.stepNode(runID, wf, next, done, escal)
 		if err != nil {
 			return err
 		}
@@ -94,16 +98,24 @@ func (e *Engine) Approve(runID, nodeID string, wf *Workflow) error {
 	return e.Run(runID, wf)
 }
 
-func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[string]bool) (bool, error) {
+func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[string]bool, escal map[string]int) (bool, error) {
 	nm := wf.nodeMap()
 	node := nm[nodeID]
 
-	hit, verify := e.memoryHitForNode(node)
+	esc := escal[nodeID]
+	hit, verify, verifiedIDs := e.memoryHitForNode(node)
 	contention, overlaps := e.contentionForNode(wf, node, done)
 	dec := routing.Route(routing.Inputs{
 		NodeKind: node.Kind, MemoryHit: hit, Verify: verify, Contention: contention,
+		Escalation: esc,
 	})
+	ctxJSON, _ := json.Marshal(verifiedIDs)
 	if dec.Reject {
+		// Escalation budget exhausted: do not mark done. The run is rejected /
+		// routes to a human.
+		_ = e.Store.UpsertRunNode(store.RunNode{
+			RunID: runID, Node: nodeID, Status: "failed", Escalation: esc, UpdatedAt: store.NowISO(),
+		})
 		_ = e.Store.SaveRun(store.RunState{
 			ID: runID, WorkflowName: wf.Name, Status: "rejected", UpdatedAt: store.NowISO(),
 		})
@@ -114,11 +126,12 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 	_ = e.Store.AddRoutingDecision(store.RoutingDecision{
 		RunID: runID, Node: nodeID, Tier: string(dec.Tier), Model: dec.Model,
 		Ceremony: dec.Ceremony, MemoryHit: dec.MemoryHit, VerifyStatus: dec.Verify,
-		Contention: contention, Reason: dec.Reason, ContentionJSON: string(cj),
-		CreatedAt: store.NowISO(),
+		Contention: contention, Reason: dec.Reason, Context: string(ctxJSON),
+		ContentionJSON: string(cj), CreatedAt: store.NowISO(),
 	})
 	_ = e.Store.UpsertRunNode(store.RunNode{
-		RunID: runID, Node: nodeID, Status: "running", Ceremony: dec.Ceremony, UpdatedAt: store.NowISO(),
+		RunID: runID, Node: nodeID, Status: "running", Ceremony: dec.Ceremony,
+		Escalation: esc, UpdatedAt: store.NowISO(),
 	})
 
 	if node.Kind == "approval" && !e.AutoApprove {
@@ -132,9 +145,8 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 		return true, nil
 	}
 
-	// Non-approval (or auto-approved) node: if it carries a `run` command, this
-	// is the REAL adapter — execute it against the repo (this is what makes the
-	// DAG actually do work, not just record a routing decision).
+	// The REAL adapter: if the node carries a `run` command, execute it against
+	// the repo. This is where work actually happens — and where it can fail.
 	if node.Run != "" {
 		out, rerr := execShell(node.Run, e.repo())
 		detail := "exec ok"
@@ -145,25 +157,50 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 			detail += " | " + truncate(string(out), 200)
 		}
 		_ = e.Store.AddEvent(runID, "exec", nodeID, detail)
+
+		if rerr != nil {
+			// Work failed. Do NOT mark done. Escalate: bump the retry count,
+			// persist failed, and let the run loop re-attempt this node at the
+			// higher tier the router now selects (cheap -> mid -> strong -> human).
+			newEsc := esc + 1
+			if newEsc > maxEscalation {
+				_ = e.Store.UpsertRunNode(store.RunNode{
+					RunID: runID, Node: nodeID, Status: "failed", Escalation: newEsc, UpdatedAt: store.NowISO(),
+				})
+				_ = e.Store.SaveRun(store.RunState{
+					ID: runID, WorkflowName: wf.Name, Status: "rejected", UpdatedAt: store.NowISO(),
+				})
+				_ = e.Store.AddEvent(runID, "reject", nodeID, "escalation budget exhausted (max 2): run failed")
+				return true, nil
+			}
+			escal[nodeID] = newEsc
+			_ = e.Store.UpsertRunNode(store.RunNode{
+				RunID: runID, Node: nodeID, Status: "failed", Escalation: newEsc, UpdatedAt: store.NowISO(),
+			})
+			_ = e.Store.AddEvent(runID, "escalate", nodeID, fmt.Sprintf("run failed; retry at higher tier (attempt %d/3)", newEsc+1))
+			return false, nil // not paused -> Run re-picks this node and re-routes
+		}
 	}
 
-	// Non-approval (or auto-approved) node: mark done, persist declared touched,
+	// Success (no run, or run succeeded): mark done, persist declared touched,
 	// and record the git-diff OBSERVATION (never a routing input — D0.1).
 	obs := e.observe(node)
 	_ = e.Store.UpsertRunNode(store.RunNode{
 		RunID: runID, Node: nodeID, Status: "done", Touched: node.Produces,
-		Ceremony: dec.Ceremony, DeclaredObs: obs, UpdatedAt: store.NowISO(),
+		Ceremony: dec.Ceremony, DeclaredObs: obs, Escalation: esc, UpdatedAt: store.NowISO(),
 	})
 	done[nodeID] = true
 	_ = e.Store.AddEvent(runID, "done", nodeID, obs)
 	return false, nil
 }
 
+const maxEscalation = 2
+
 // memoryHitForNode returns whether a VERIFIED prior solution exists for this
 // node. The thesis: an artifact may not vote for cheap until it matches current
 // repo state. So before trusting, we run verification.Run LIVE against the repo
 // and persist the result. Only status=="verified" counts as a real hit.
-func (e *Engine) memoryHitForNode(node Node) (bool, string) {
+func (e *Engine) memoryHitForNode(node Node) (bool, string, []string) {
 	cands := map[string]store.Artifact{}
 	for _, q := range []string{node.ID, node.Kind} {
 		res, err := e.Store.SearchArtifacts(q, "", "", 10)
@@ -176,6 +213,7 @@ func (e *Engine) memoryHitForNode(node Node) (bool, string) {
 	// Only artifacts explicitly tagged with this exact node id count. The loose
 	// "any accepted artifact of the same kind" fallback caused false hits.
 	bestStatus := ""
+	var verifiedIDs []string
 	for _, a := range cands {
 		if a.Status != "accepted" {
 			continue
@@ -187,15 +225,21 @@ func (e *Engine) memoryHitForNode(node Node) (bool, string) {
 		res := verification.Run(a, e.repo())
 		_ = e.Store.SetVerify(a.ID, res.Status)
 		if res.Status == "verified" {
-			return true, "verified"
+			verifiedIDs = append(verifiedIDs, a.ID)
+			continue
 		}
 		bestStatus = res.Status
 	}
+	if len(verifiedIDs) > 0 {
+		// A verified prior solution exists: it is the ONLY context carried into
+		// the (re-)attempt. Failed-attempt prose is never persisted as context.
+		return true, "verified", verifiedIDs
+	}
 	if bestStatus != "" {
 		// accepted but not currently verified: a hit, but it cannot vote cheap.
-		return true, bestStatus
+		return true, bestStatus, nil
 	}
-	return false, "unknown"
+	return false, "unknown", nil
 }
 
 // repo returns the configured repo root, defaulting to the process cwd.
@@ -310,6 +354,19 @@ func (e *Engine) doneMap(runID string) (map[string]bool, error) {
 		if n.Status == "done" {
 			m[n.Node] = true
 		}
+	}
+	return m, nil
+}
+
+// escalMap returns the current retry count per node (for the escalation budget).
+func (e *Engine) escalMap(runID string) (map[string]int, error) {
+	nodes, err := e.Store.LoadRunNodes(runID)
+	if err != nil {
+		return nil, err
+	}
+	m := map[string]int{}
+	for _, n := range nodes {
+		m[n.Node] = n.Escalation
 	}
 	return m, nil
 }

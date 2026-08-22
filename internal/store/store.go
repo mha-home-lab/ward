@@ -116,10 +116,11 @@ type RunState struct {
 type RunNode struct {
 	RunID        string
 	Node         string
-	Status       string // pending|ready|running|awaiting_approval|done|failed|skipped
+	Status       string // pending|ready|running|awaiting_approval|done|failed
 	Touched      []string
 	Ceremony     string
 	DeclaredObs  string // git-diff observed delta (observation only, D0.1)
+	Escalation   int    // retries already applied to this node
 	UpdatedAt    string
 }
 
@@ -134,6 +135,7 @@ type RoutingDecision struct {
 	Contention     bool
 	EscalatedFrom  string
 	Reason         string
+	Context        string // JSON list of verified artifact ids used as context (never failed-attempt prose)
 	ContentionJSON string
 	CreatedAt      string
 }
@@ -187,6 +189,7 @@ CREATE TABLE IF NOT EXISTS run_nodes (
   touched TEXT DEFAULT '[]',
   ceremony_level TEXT DEFAULT 'light',
   declared_obs TEXT DEFAULT '',
+  escalation INTEGER DEFAULT 0,
   updated_at TEXT NOT NULL,
   PRIMARY KEY (run_id, node)
 );
@@ -223,7 +226,7 @@ CREATE TABLE IF NOT EXISTS routing_decisions (
   tier TEXT, model TEXT, ceremony_level TEXT,
   memory_hit INTEGER, verify_status TEXT,
   contention INTEGER, escalated_from TEXT, reason TEXT,
-  contention_inputs TEXT,
+  context TEXT, contention_inputs TEXT,
   created_at TEXT NOT NULL
 );
 `

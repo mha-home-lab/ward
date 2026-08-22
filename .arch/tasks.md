@@ -244,8 +244,14 @@ prove done, in the spirit of chef's `tasks.md`.
     --workflow workflows/parallel-demo.yaml --auto-approve` shows two unordered
     siblings sharing a file → `build-b` escalates to `strong`/`full` (contention
     between *unordered* nodes only — the D0.1 false-positive trap).
-  - Escalation budget (max 2) → `REJECT`. `routing_decisions` records
-    `contention` + `contention_inputs` JSON for hindsight audit.
+  - **Failed `run:` is now first-class (thesis fix 2026-08-22):** the engine
+    executes a node's `run:` command (real adapter). On failure it marks the
+    node `failed` (NOT `done`), bumps the escalation count, and re-routes the
+    SAME node at the higher tier the router selects — cheap → mid → strong →
+    `REJECT`/human, capped at 2 escalations. Proven by `TestEngineRunFailureEscalates`.
+    Each routing decision records `context` = the verified artifact ids only;
+    failed-attempt prose is never carried into a retry (`resume from verified
+    facts only`). Contention test fixed to not be order-lucky.
   - `memory put` light ceremony auto-accepts; `memory get`/`supersede`, `verify
     --all`/`--trust`, structured `handoff --incomplete`, and `tick` (drift sweep)
     implemented. `go.mod` deps direct; `PRAGMA journal_mode=WAL` on open.
