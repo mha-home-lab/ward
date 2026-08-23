@@ -253,6 +253,8 @@ func taskRunCmd() *cobra.Command {
 					printLine("task closed as done; result captured for the next session")
 				case "open":
 					printLine("task re-entered pool at floor " + out["tier_floor"])
+					printLine("to continue THIS work: ward task take " + t.ID + " --by <your-name> ; then ward task run " + t.ID)
+					printLine("otherwise pick different work: ward task next")
 				case "rejected":
 					printLine("escalation budget spent — needs a human; dossier: " + out["dossier"])
 				default:

@@ -971,3 +971,55 @@ The loop learns where knowledge is compilable and gated; it doesn't learn
 where lessons hide in verdict prose or process habits. The next unit of work
 on ward itself is therefore spec amendments for L1/L2 — through review first.
 
+## Campaign report — 3-hour autonomous loop (2026-08-23)
+
+Rhythm executed: fix gaps → wave engineers → harvest → explore → promote →
+compile → repeat, across donate-fair AND secure-bank simultaneously.
+
+### Waves run
+
+- **Wave A (ward):** L1/L2/L3 fixed — implement-first hints at pull/take,
+  research.md v1.1.0 step 7 (compilable lessons), broker.md §5 authoring rules.
+- **Wave B (donate-fair):** freeze-recovery + bank-down tests seeded; freeze
+  closed FIRST-RUN by wave3-b; bank-down bounced once on the familiar
+  premature-run signature, then completed by its own engineer via take.
+- **Wave C (secure-bank, parallel with B — separate trees):** coverage task
+  bounced twice (premature run + brittle coverage-range grep), engineer
+  finished after rejection; architect seeded a verify-only successor and
+  closed it via take+run. Coverage 63.1% → 70.0%, five handlers un-blanked.
+- **Wave D (R&D):** harvest exposed THE structural finding — cheap+verified is
+  structurally 0% because pool captures are tagged work-<taskID> only, so
+  verified knowledge can NEVER vouch across tasks. Explorer proposed topic-tag
+  propagation + verified-only topic-vouching (0ac7fcd1, 7d82118a); both
+  PROMOTED; `ward-rd-compounding` chip compiled.
+
+### New findings
+
+- **L4:** recovery guidance belongs at the failure point — bounce output now
+  says "take it back / pick different work" (shipped).
+- **L5:** `task take` is deliberately budget-exempt (recovery semantics);
+  documented, not changed.
+- **L6 (structural, promoted as rd:compounding):** single-run pools cannot
+  compound verification knowledge without topic tags. Implementation deferred
+  to a reviewed session: task --tags → node tags → capture tags +
+  engine-side topic-intersection hit matching (Route purity untouched).
+
+### Where value showed up (evidence, not vibes)
+
+- Two repos advanced concurrently by 7 small-model sessions; every landed
+  change committed with agent attribution; zero silent failures (every bounce
+  produced either recovery or an honest dossier/rejection).
+- The brain caught its own blind spot: the compounding gap was invisible until
+  harvest aggregated two stores' decisions.
+- Chips demonstrably transferred content (invariants authored to checklist).
+
+### State at handoff
+
+- donate-fair: Phase-3 failure-injections complete (freeze/bank-down/DLQ/
+  replay/props); PLAN phases 4-6 remain (reconciliation view optional;
+  campaign = this). Pool drained.
+- secure-bank: pool drained, coverage raised, all pools honest.
+- ward: L1-L5 shipped; L6 designed+promoted, awaiting reviewed implementation.
+- Next session: implement L6 through review; then re-measure cheap_verified
+  on repeat-work waves — that number finally becomes meaningful.
+
