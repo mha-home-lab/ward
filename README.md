@@ -27,7 +27,8 @@ under `WARD_HOME`, defaulting to your home config dir).
 `init` is self-consulting by default: it writes a marker-delimited protocol
 block into `AGENTS.md` (and refreshes existing `CLAUDE.md`/`GEMINI.md`), so
 every future agent session is briefed without a human repeating the rules.
-Opt out with `--no-agents-md`.
+Opt out with `--no-agents-md`. `init --scaffold` writes a runnable
+`workflows/default.yaml` into **your project** (it is not a file ward ships).
 
 ## Concepts
 
@@ -55,6 +56,19 @@ Opt out with `--no-agents-md`.
 Tiers: **cheap** (verified prior result exists) · **mid** (default on a miss)
 · **strong** (declared floor or real DAG contention) · **rejected** (escalation
 budget spent → human dossier).
+
+Two honest boundaries, stated plainly:
+
+- **Routing changes who executes, not what the worker knows.** A verified hit
+  routes work to a cheaper model; it does not inject prior output into that
+  model's context (auto-injection invites anchoring and prompt-injection).
+  Knowledge travels through pull surfaces instead: `brief` pointers,
+  `memory context`, and compiled chips.
+- **The protocol is instruction-following, not mechanical enforcement.** What
+  *is* enforced in code: atomic claims (unique index), the trust boundary
+  (`verify_cmd` runs only for store-local artifacts), verify-gated completion,
+  and workflow-drift refusal on resume. Everything else in `AGENTS.md` relies
+  on the agent actually reading it — a real limit, named rather than hidden.
 
 ## Reference
 
@@ -103,6 +117,19 @@ ward wave topic:auth --heal     # supersede drifted claims
 
 Waves are the standing proof that tagged knowledge still holds — run one
 before claiming done.
+
+### Execution semantics
+
+- **`ward task run` is at-least-once.** If an agent dies mid-task, its claim
+  can be taken (`task take`) and the work re-executed. Write `run:`/verify
+  commands to tolerate re-execution (prefer checks over mutations; make
+  mutations idempotent).
+- **Runs refuse workflow drift.** Each run persists a semantic hash of its
+  definition at start; `run resume`/`approve` against a mutated YAML file is
+  refused unless you pass `--allow-drift`.
+- **State transitions are checked.** The engine returns errors when run/node
+  state or audit events fail to persist — a completed-looking run always made
+  it to disk that way.
 
 ### Fleets (parallel engineers)
 

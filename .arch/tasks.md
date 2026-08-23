@@ -1334,3 +1334,74 @@ any of them — limbo is debt; drafts are decisions to wait consciously.
 ### Dogfood evidence
 All fixes proven on live stores before commit; regression waves re-run green
 on mdq/donate-fair/secure-bank at close (see handoff).
+
+## v0.8.x — public agent feedback triage (2026-08-23): three reviews, three fixes shipped
+
+Mohamed collected external reviews in `public_agent_feedback/` (xai,
+anthropic, openai; xai/anthropic initially duplicated by paste error).
+Reviews examined ward at 5992df9 (pre-consolidation). PO triage below —
+what was verified in code, what shipped now, what was deferred as Draft
+specs, what was rejected with rationale.
+
+### Verified true and FIXED this session
+1. **Topic compounding retrieval was accidentally coupled to FTS text**
+   (openai #5). memoryHitForNode pulled candidates ONLY via FTS on node id/
+   kind, then filtered tags after retrieval — so a later same-topic task could
+   silently MISS an earlier capture whose summary never mentioned its node id
+   or kind. The L6 test passed because both tasks shared kind "test", which
+   appears in captured summaries. Fixed: tag-first retrieval (exact node-id
+   tag + every topic tag via SearchArtifactsTagged), FTS demoted to legacy
+   fallback. Regression test TestTopicCompoundingSurvivesSummaryWording uses
+   kind test vs default specifically to defeat the accidental coupling.
+2. **Engine state-machine writes were ignored errors** (openai #2). ~25 `_ =`
+   persistence calls including UpsertRunNode transitions, terminal SaveRun,
+   AddRoutingDecision, and attempt-transcript AddEvents — a failed write could
+   diverge durable state from reality (execute ok / node never done; or
+   rejection with hollow audit trail). Fixed: every state transition and audit
+   event is checked and returned with context. Deliberate exceptions, each
+   commented: SetVerify cache refresh (route gates on the live result),
+   verify='passed' span stamp (telemetry enrichment), dossier write
+   (derived synthesis; rejection itself already durably recorded), Seed.
+3. **Run reproducibility: resume under a mutated workflow** (openai #3).
+   Only workflow_path was persisted; a YAML edited between start and resume
+   executed a different definition silently. Fixed: migration v6 adds
+   runs.workflow_hash (semantic sha256 of canonical YAML, immutable after
+   insert); Engine.Run refuses hash mismatch with a one-line explanation;
+   `run resume/approve --allow-drift` is the explicit override; pre-v6 runs
+   honestly unguarded. Test: TestResumeRefusesWorkflowDrift.
+
+### Verified TRUE, fixed as documentation (no code warranted)
+4. **Task pool is at-least-once** (openai #4): true and now STATED in README
+   Ops (execution semantics) with idempotency guidance for run:/verify.
+5. **Thesis precision** (openai #6): accepted the sharper formulation —
+   routing changes WHO executes, not what the worker knows; knowledge travels
+   via pull surfaces (brief/context/chips), auto-injection deliberately
+   rejected (anchoring/prompt-injection risk the reviewer himself flagged).
+   Now stated in README Concepts as a boundary.
+6. **Protocol compliance is a social bet** (anthropic): named honestly in
+   README alongside what IS enforced in code (claims, trust boundary,
+   verify-gated completion, drift guard). No enforcement machinery built.
+7. **Scaffold provenance ambiguity** (xai #4): README clarifies --scaffold
+   writes into the user's project.
+
+### Deferred as Draft specs (charter discipline holds)
+- `.spec/runner-seam.md` (openai #7): Runner interface, opencode becomes one
+  adapter among many; tier→worker mapping configurable.
+- `.spec/execution-policy.md` (openai #12): trusted-local → sandboxed →
+  container → worktree ladder replacing universal sh -c when untrusted
+  authors exist.
+
+### Rejected, with rationale
+8. **Demote/cut harvest/scorecard/fleet/wave/skill** (openai #13): these are
+   the proven dogfood surface (waves gate this repo's own releases; fleet
+   produced R12/R13; chips are the knowledge-transfer mechanism). Cutting
+   working, tested tools for aesthetic minimalism adds churn without user
+   evidence. The README already groups them under Ops rather than core loop.
+
+### Recorded for a future session (not started)
+9. **Heterogeneous fleet experiment** (openai P2): seeded into the ward task
+   pool — N tasks, mixed-tier workers through the pool only, measure
+   duplicate-work rate, cheap-hit %, escalations, wall-clock vs independent
+   agents. This is the experiment openai argued matters more than another
+   1000 lines of ward; it also matches R12/R13's own conclusion that the
+   next probe should change scale/heterogeneity, not re-run solo-vs-fleet.

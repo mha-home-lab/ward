@@ -540,3 +540,70 @@ edges:
 		t.Fatal(err)
 	}
 }
+
+// External-review regression (openai.md #5): topic compounding must retrieve
+// by TAG, not by luck of summary wording. Task A's capture text names only
+// A's own node id and kind ("test"); task B is kind "default" with a
+// different id, so B's FTS keys match nothing. Only an exact-tag lookup can
+// find A's verified capture. Under the old FTS-only candidate pull this
+// routed mid (silent compounding failure); tag-first retrieval routes cheap.
+func TestTopicCompoundingSurvivesSummaryWording(t *testing.T) {
+	t.Setenv("WARD_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+
+	// Task A: kind test -> its capture summary contains "(test)", never
+	// anything about task B.
+	execCmd(taskAddCmd(), t, []string{"alpha work"}, map[string]string{
+		"tier": "cheap", "kind": "test", "run": "true",
+		"verify-cmd": "true", "tags": "topic:wording",
+	})
+	// Task B: kind default -> FTS over "work-<B>" and "default" cannot match
+	// A's capture text. Compounding must still hit via the topic tag.
+	execCmd(taskAddCmd(), t, []string{"beta work"}, map[string]string{
+		"tier": "cheap", "kind": "default", "run": "true",
+		"verify-cmd": "true", "tags": "topic:wording",
+	})
+
+	var secondID string
+	pullAndRun := func(agent string) string {
+		next := taskNextCmd()
+		if err := next.Flags().Set("by", agent); err != nil {
+			t.Fatal(err)
+		}
+		next.SetArgs(nil)
+		if err := next.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		s, _ := store.Open()
+		ts, _ := s.ListTasks("claimed", 1)
+		id := ts[0].ID
+		s.DB.Close()
+		run := taskRunCmd()
+		run.SetArgs([]string{id})
+		if err := run.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	pullAndRun("eng-1")
+	secondID = pullAndRun("eng-2")
+
+	s2, _ := store.Open()
+	defer s2.DB.Close()
+	decs, _ := s2.AllRoutingDecisions(10)
+	suffix := strings.TrimPrefix(secondID, "task-")
+	var last store.RoutingDecision
+	found := false
+	for _, d := range decs {
+		if strings.HasSuffix(d.Node, suffix) {
+			last, found = d, true
+		}
+	}
+	if !found {
+		t.Fatal("no work decision for the second task")
+	}
+	if last.Tier != "cheap" || !last.MemoryHit || last.VerifyStatus != "verified" {
+		t.Fatalf("compounding must work via tags alone regardless of summary wording, got %+v reason=%q",
+			last, last.Reason)
+	}
+}

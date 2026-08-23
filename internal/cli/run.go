@@ -133,6 +133,7 @@ func runStatusCmd() *cobra.Command {
 
 func runApproveCmd() *cobra.Command {
 	var wfPath string
+	var allowDrift bool
 	c := &cobra.Command{
 		Use:   "approve <runID> <node>",
 		Short: "approve an awaiting_approval node and resume",
@@ -151,7 +152,7 @@ func runApproveCmd() *cobra.Command {
 			if err != nil {
 				return failErr(err)
 			}
-			eng := &orchestration.Engine{Store: s}
+			eng := &orchestration.Engine{Store: s, AllowWorkflowDrift: allowDrift}
 			if err := eng.Approve(args[0], args[1], wf); err != nil {
 				return failErr(err)
 			}
@@ -166,12 +167,14 @@ func runApproveCmd() *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&wfPath, "workflow", "", "workflow YAML path")
+	c.Flags().BoolVar(&allowDrift, "allow-drift", false, "resume even if the workflow file changed since the run started (default: refuse)")
 	return c
 }
 
 func runResumeCmd() *cobra.Command {
 	var wfPath string
 	var autoApprove bool
+	var allowDrift bool
 	c := &cobra.Command{
 		Use:   "resume <runID>",
 		Short: "resume a paused run",
@@ -190,7 +193,7 @@ func runResumeCmd() *cobra.Command {
 			if err != nil {
 				return failErr(err)
 			}
-			eng := &orchestration.Engine{Store: s, AutoApprove: autoApprove}
+			eng := &orchestration.Engine{Store: s, AutoApprove: autoApprove, AllowWorkflowDrift: allowDrift}
 			if err := eng.Run(args[0], wf); err != nil {
 				return failErr(err)
 			}
@@ -206,6 +209,7 @@ func runResumeCmd() *cobra.Command {
 	}
 	c.Flags().StringVar(&wfPath, "workflow", "", "workflow YAML path")
 	c.Flags().BoolVar(&autoApprove, "auto-approve", false, "auto-approve approval nodes")
+	c.Flags().BoolVar(&allowDrift, "allow-drift", false, "resume even if the workflow file changed since the run started (default: refuse)")
 	return c
 }
 

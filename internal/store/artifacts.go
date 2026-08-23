@@ -258,10 +258,10 @@ func nullStr(s sql.NullString) string {
 
 // CreateRun inserts a new run row.
 func (s *Store) CreateRun(r RunState) error {
-	_, err := s.DB.Exec(`INSERT INTO runs (id, workflow_name, workflow_path, status, waiting_approval_id,
+	_, err := s.DB.Exec(`INSERT INTO runs (id, workflow_name, workflow_path, workflow_hash, status, waiting_approval_id,
 		current_item_id, ceremony_level, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?)`,
-		r.ID, r.WorkflowName, r.WorkflowPath, r.Status, r.WaitingApproval, r.CurrentItem, r.Ceremony,
+		VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		r.ID, r.WorkflowName, r.WorkflowPath, r.WorkflowHash, r.Status, r.WaitingApproval, r.CurrentItem, r.Ceremony,
 		r.CreatedAt, r.UpdatedAt)
 	return err
 }
@@ -269,17 +269,17 @@ func (s *Store) CreateRun(r RunState) error {
 // LoadRun loads a run by id.
 func (s *Store) LoadRun(id string) (RunState, error) {
 	var r RunState
-	var wa, ci, cer, wp sql.NullString
-	err := s.DB.QueryRow(`SELECT id, workflow_name, workflow_path, status, waiting_approval_id,
+	var wa, ci, cer, wp, wh sql.NullString
+	err := s.DB.QueryRow(`SELECT id, workflow_name, workflow_path, workflow_hash, status, waiting_approval_id,
 		current_item_id, ceremony_level, created_at, updated_at FROM runs WHERE id=?`, id).
-		Scan(&r.ID, &r.WorkflowName, &wp, &r.Status, &wa, &ci, &cer, &r.CreatedAt, &r.UpdatedAt)
+		Scan(&r.ID, &r.WorkflowName, &wp, &wh, &r.Status, &wa, &ci, &cer, &r.CreatedAt, &r.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return r, fmt.Errorf("no run %s", id)
 	}
 	if err != nil {
 		return r, err
 	}
-	r.WorkflowPath = nullStr(wp)
+	r.WorkflowPath, r.WorkflowHash = nullStr(wp), nullStr(wh)
 	r.WaitingApproval, r.CurrentItem, r.Ceremony = nullStr(wa), nullStr(ci), nullStr(cer)
 	return r, nil
 }
@@ -288,18 +288,18 @@ func (s *Store) LoadRun(id string) (RunState, error) {
 // Used to resolve a workflow path when a command is invoked without --workflow.
 func (s *Store) LatestRun() (RunState, error) {
 	var r RunState
-	var wa, ci, cer, wp sql.NullString
-	err := s.DB.QueryRow(`SELECT id, workflow_name, workflow_path, status, waiting_approval_id,
+	var wa, ci, cer, wp, wh sql.NullString
+	err := s.DB.QueryRow(`SELECT id, workflow_name, workflow_path, workflow_hash, status, waiting_approval_id,
 		current_item_id, ceremony_level, created_at, updated_at FROM runs
 		ORDER BY created_at DESC, rowid DESC LIMIT 1`).
-		Scan(&r.ID, &r.WorkflowName, &wp, &r.Status, &wa, &ci, &cer, &r.CreatedAt, &r.UpdatedAt)
+		Scan(&r.ID, &r.WorkflowName, &wp, &wh, &r.Status, &wa, &ci, &cer, &r.CreatedAt, &r.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return r, fmt.Errorf("no runs yet")
 	}
 	if err != nil {
 		return r, err
 	}
-	r.WorkflowPath = nullStr(wp)
+	r.WorkflowPath, r.WorkflowHash = nullStr(wp), nullStr(wh)
 	r.WaitingApproval, r.CurrentItem, r.Ceremony = nullStr(wa), nullStr(ci), nullStr(cer)
 	return r, nil
 }
@@ -307,7 +307,7 @@ func (s *Store) LatestRun() (RunState, error) {
 // OpenRuns returns every run that is still in flight (running or awaiting
 // approval), oldest first. Used by handoff and brief to surface unfinished work.
 func (s *Store) OpenRuns() ([]RunState, error) {
-	rows, err := s.DB.Query(`SELECT id, workflow_name, workflow_path, status, waiting_approval_id,
+	rows, err := s.DB.Query(`SELECT id, workflow_name, workflow_path, workflow_hash, status, waiting_approval_id,
 		current_item_id, ceremony_level, created_at, updated_at FROM runs
 		WHERE status IN ('running','awaiting_approval') ORDER BY created_at ASC`)
 	if err != nil {
@@ -317,11 +317,11 @@ func (s *Store) OpenRuns() ([]RunState, error) {
 	var out []RunState
 	for rows.Next() {
 		var r RunState
-		var wa, ci, cer, wp sql.NullString
-		if err := rows.Scan(&r.ID, &r.WorkflowName, &wp, &r.Status, &wa, &ci, &cer, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		var wa, ci, cer, wp, wh sql.NullString
+		if err := rows.Scan(&r.ID, &r.WorkflowName, &wp, &wh, &r.Status, &wa, &ci, &cer, &r.CreatedAt, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
-		r.WorkflowPath = nullStr(wp)
+		r.WorkflowPath, r.WorkflowHash = nullStr(wp), nullStr(wh)
 		r.WaitingApproval, r.CurrentItem, r.Ceremony = nullStr(wa), nullStr(ci), nullStr(cer)
 		out = append(out, r)
 	}
@@ -330,14 +330,16 @@ func (s *Store) OpenRuns() ([]RunState, error) {
 
 // SaveRun upserts run state.
 func (s *Store) SaveRun(r RunState) error {
-	_, err := s.DB.Exec(`INSERT INTO runs (id, workflow_name, workflow_path, status, waiting_approval_id,
+	// workflow_hash is written on INSERT only: it is the run's identity at
+	// birth and is never overwritten by later transitions.
+	_, err := s.DB.Exec(`INSERT INTO runs (id, workflow_name, workflow_path, workflow_hash, status, waiting_approval_id,
 		current_item_id, ceremony_level, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?)
+		VALUES (?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET status=excluded.status,
 		workflow_path=excluded.workflow_path,
 		waiting_approval_id=excluded.waiting_approval_id, current_item_id=excluded.current_item_id,
 		ceremony_level=excluded.ceremony_level, updated_at=excluded.updated_at`,
-		r.ID, r.WorkflowName, r.WorkflowPath, r.Status, r.WaitingApproval, r.CurrentItem, r.Ceremony,
+		r.ID, r.WorkflowName, r.WorkflowPath, r.WorkflowHash, r.Status, r.WaitingApproval, r.CurrentItem, r.Ceremony,
 		r.CreatedAt, r.UpdatedAt)
 	return err
 }

@@ -118,7 +118,16 @@ func (s *Store) migrate() error {
 	if err := s.addColumn("tasks", "tags", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
 		return err
 	}
-	_, err := s.DB.Exec("PRAGMA user_version = 5")
+	// v5 -> v6 (external review): persist a semantic hash of the workflow
+	// definition at run start, so resume/approve can refuse to continue a run
+	// under a DIFFERENT definition than the one that created it (the YAML
+	// file living at workflow_path is mutable state; the run's identity is
+	// not). Immutable after insert; empty for pre-v6 runs (no guard possible,
+	// stated honestly rather than faked).
+	if err := s.addColumn("runs", "workflow_hash", "TEXT"); err != nil {
+		return err
+	}
+	_, err := s.DB.Exec("PRAGMA user_version = 6")
 	return err
 }
 
@@ -198,6 +207,7 @@ type RunState struct {
 	ID              string
 	WorkflowName    string
 	WorkflowPath    string // file the run was started from; used to reload on resume/approve
+	WorkflowHash    string // semantic hash of the definition at start; guards resume drift
 	Status          string // running|awaiting_approval|completed|rejected
 	WaitingApproval string
 	CurrentItem     string

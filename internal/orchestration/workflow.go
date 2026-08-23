@@ -1,6 +1,8 @@
 package orchestration
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -178,6 +180,20 @@ func LoadWorkflow(path string) (*Workflow, error) {
 	}
 	w.Path = path
 	return &w, nil
+}
+
+// DefinitionHash returns a stable semantic hash of the workflow definition
+// (sha256 of its canonical YAML form). Two files with identical semantics
+// hash equal regardless of comments or key order; any change to nodes, edges,
+// tiers, or commands changes the hash. Persisted at run creation so a later
+// resume can refuse to continue a run under a mutated definition.
+func (w *Workflow) DefinitionHash() (string, error) {
+	data, err := yaml.Marshal(w)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // Save writes the workflow as YAML to path (mkdir -p), then re-validates what

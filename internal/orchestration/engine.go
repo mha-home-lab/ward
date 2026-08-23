@@ -21,6 +21,12 @@ type Engine struct {
 	RepoRoot    string
 	AutoApprove bool
 
+	// AllowWorkflowDrift overrides the resume guard: a run whose workflow
+	// file changed since start is refused by default (external review
+	// finding — resuming a DIFFERENT definition than the one that created
+	// the run breaks reproducibility). Explicit opt-in re-enables it.
+	AllowWorkflowDrift bool
+
 	// lastFail tracks each node's most recent failure detail within one Run
 	// pass, powering the identical-failure short-circuit (rd:c1 f0b662e1):
 	// a deterministic run: command that failed identically gains nothing from
@@ -32,8 +38,13 @@ type Engine struct {
 func (e *Engine) StartWorkflow(wf *Workflow) (string, error) {
 	runID := "run-" + sha8run(wf.Name+time.Now().String())
 	now := store.NowISO()
+	defHash, err := wf.DefinitionHash()
+	if err != nil {
+		return "", fmt.Errorf("hash workflow definition: %w", err)
+	}
 	if err := e.Store.CreateRun(store.RunState{
-		ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "running",
+		ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, WorkflowHash: defHash,
+		Status:   "running",
 		Ceremony: "light", CreatedAt: now, UpdatedAt: now,
 	}); err != nil {
 		return "", err
@@ -50,6 +61,20 @@ func (e *Engine) StartWorkflow(wf *Workflow) (string, error) {
 
 // Run advances the run from its current persisted state to the next pause.
 func (e *Engine) Run(runID string, wf *Workflow) error {
+	// Workflow-drift guard: the run row records the definition hash captured
+	// at start. Resuming under a mutated YAML would silently execute a
+	// different workflow than the one that created the run — refuse unless
+	// explicitly overridden. Runs created before v6 have no hash and are
+	// honestly unguarded.
+	if r, rerr := e.Store.LoadRun(runID); rerr == nil && r.WorkflowHash != "" && !e.AllowWorkflowDrift {
+		now, herr := wf.DefinitionHash()
+		if herr != nil {
+			return fmt.Errorf("hash workflow definition: %w", herr)
+		}
+		if now != r.WorkflowHash {
+			return fmt.Errorf("workflow changed since run %s started (definition hash mismatch): refusing to resume a different definition; pass --allow-drift to override or start a new run", runID)
+		}
+	}
 	order, err := wf.TopoOrder()
 	if err != nil {
 		return err
@@ -72,11 +97,13 @@ func (e *Engine) Run(runID string, wf *Workflow) error {
 			}
 		}
 		if next == "" {
-			_ = e.Store.SaveRun(store.RunState{
+			// The terminal transition must be checked: a silently-failed
+			// SaveRun here is exactly the "executed fine but the store says
+			// running forever" divergence (external review finding).
+			return e.Store.SaveRun(store.RunState{
 				ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "completed",
 				UpdatedAt: store.NowISO(),
 			})
-			return nil
 		}
 		paused, err := e.stepNode(runID, wf, next, done, escal)
 		if err != nil {
@@ -102,7 +129,9 @@ func (e *Engine) Approve(runID, nodeID string, wf *Workflow) error {
 	}); err != nil {
 		return err
 	}
-	_ = e.Store.AddEvent(runID, "approve", nodeID, "human/agent approved")
+	if err := e.Store.AddEvent(runID, "approve", nodeID, "human/agent approved"); err != nil {
+		return err
+	}
 	return e.Run(runID, wf)
 }
 
@@ -122,35 +151,54 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 		// Escalation budget exhausted: do not mark done. The run is rejected /
 		// routes to a human — with a dossier, so the human inherits the
 		// evidence packet instead of a bare status string.
-		_ = e.Store.UpsertRunNode(store.RunNode{
+		//
+		// State-machine writes are CHECKED (external review finding: ignored
+		// persistence errors here could diverge the durable state machine
+		// from reality — e.g. execute succeeded but node=failed never landed,
+		// and ward's entire value is trustworthy transitions).
+		if err := e.Store.UpsertRunNode(store.RunNode{
 			RunID: runID, Node: nodeID, Status: "failed", Escalation: esc, UpdatedAt: store.NowISO(),
-		})
-		_ = e.Store.SaveRun(store.RunState{
+		}); err != nil {
+			return true, fmt.Errorf("persist failed-node %s: %w", nodeID, err)
+		}
+		if err := e.Store.SaveRun(store.RunState{
 			ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO(),
-		})
-		_ = e.Store.AddEvent(runID, "reject", nodeID, dec.Reason)
+		}); err != nil {
+			return true, fmt.Errorf("persist rejected run: %w", err)
+		}
+		if err := e.Store.AddEvent(runID, "reject", nodeID, dec.Reason); err != nil {
+			return true, fmt.Errorf("persist reject event: %w", err)
+		}
 		e.WriteDossier(runID, nodeID)
 		return true, nil
 	}
 	cj, _ := json.Marshal(map[string]any{"overlaps": overlaps, "node_touched": node.Produces})
-	_ = e.Store.AddRoutingDecision(store.RoutingDecision{
+	if err := e.Store.AddRoutingDecision(store.RoutingDecision{
 		RunID: runID, Node: nodeID, Tier: string(dec.Tier), Model: dec.Model,
 		Ceremony: dec.Ceremony, MemoryHit: dec.MemoryHit, VerifyStatus: dec.Verify,
 		Contention: contention, Reason: dec.Reason, Context: string(ctxJSON),
 		ContentionJSON: string(cj), CreatedAt: store.NowISO(),
-	})
-	_ = e.Store.UpsertRunNode(store.RunNode{
+	}); err != nil {
+		return true, fmt.Errorf("persist routing decision for %s: %w", nodeID, err)
+	}
+	if err := e.Store.UpsertRunNode(store.RunNode{
 		RunID: runID, Node: nodeID, Status: "running", Ceremony: dec.Ceremony,
 		Escalation: esc, UpdatedAt: store.NowISO(),
-	})
+	}); err != nil {
+		return true, fmt.Errorf("persist running-node %s: %w", nodeID, err)
+	}
 
 	if node.Kind == "approval" && !e.AutoApprove {
-		_ = e.Store.SaveRun(store.RunState{
+		if err := e.Store.SaveRun(store.RunState{
 			ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "awaiting_approval",
 			WaitingApproval: nodeID, UpdatedAt: store.NowISO(),
-		})
+		}); err != nil {
+			return true, fmt.Errorf("persist awaiting_approval: %w", err)
+		}
 		for _, ch := range node.Channels {
-			_ = e.Store.AddEvent(runID, "channel", nodeID, "post to "+ch)
+			if err := e.Store.AddEvent(runID, "channel", nodeID, "post to "+ch); err != nil {
+				return true, fmt.Errorf("persist channel event: %w", err)
+			}
 		}
 		return true, nil
 	}
@@ -168,7 +216,12 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 		if len(out) > 0 {
 			detail += " | " + truncate(out, 200)
 		}
-		_ = e.Store.AddEvent(runID, "model", nodeID, detail)
+		if err := e.Store.AddEvent(runID, "model", nodeID, detail); err != nil {
+			// The attempt transcript is evidence (dossiers/explain read it
+			// back); a failed write must not silently hollow out the audit
+			// trail while execution proceeds.
+			return false, fmt.Errorf("persist model event: %w", err)
+		}
 		if merr != nil {
 			return e.failNode(runID, wf, nodeID, esc, escal, "model failed")
 		}
@@ -182,7 +235,9 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 		if len(out) > 0 {
 			detail += " | " + truncate(string(out), 200)
 		}
-		_ = e.Store.AddEvent(runID, "exec", nodeID, detail)
+		if err := e.Store.AddEvent(runID, "exec", nodeID, detail); err != nil {
+			return false, fmt.Errorf("persist exec event: %w", err)
+		}
 		if rerr != nil {
 			// Pre-flight gate (rd:c2 bfd02833): these signatures mean the
 			// CHECK ITSELF cannot run (missing target file, uninstalled
@@ -190,20 +245,32 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 			// is. Reject immediately without burning a single escalation:
 			// stronger tiers cannot execute a broken check either.
 			if preFlightBrokenCheck(detail) {
-				_ = e.Store.AddEvent(runID, "reject", nodeID,
-					"preflight: check is non-executable (fix the task's run/verify command): "+detail)
-				_ = e.Store.UpsertRunNode(store.RunNode{RunID: runID, Node: nodeID, Status: "failed", Escalation: esc, UpdatedAt: store.NowISO()})
-				_ = e.Store.SaveRun(store.RunState{ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO()})
+				if err := e.Store.AddEvent(runID, "reject", nodeID,
+					"preflight: check is non-executable (fix the task's run/verify command): "+detail); err != nil {
+					return true, fmt.Errorf("persist preflight reject event: %w", err)
+				}
+				if err := e.Store.UpsertRunNode(store.RunNode{RunID: runID, Node: nodeID, Status: "failed", Escalation: esc, UpdatedAt: store.NowISO()}); err != nil {
+					return true, fmt.Errorf("persist preflight failed-node: %w", err)
+				}
+				if err := e.Store.SaveRun(store.RunState{ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO()}); err != nil {
+					return true, fmt.Errorf("persist preflight rejected run: %w", err)
+				}
 				e.WriteDossier(runID, nodeID)
 				return true, nil
 			}
 			// Identical-failure short-circuit: no model in the loop means the
 			// retry is byte-identical work; a tier climb cannot change it.
 			if node.Prompt == "" && e.lastFail[nodeID] == detail && esc > 0 {
-				_ = e.Store.AddEvent(runID, "reject", nodeID,
-					"identical failure repeated without progress (no model in loop): "+detail)
-				_ = e.Store.UpsertRunNode(store.RunNode{RunID: runID, Node: nodeID, Status: "failed", Escalation: esc, UpdatedAt: store.NowISO()})
-				_ = e.Store.SaveRun(store.RunState{ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO()})
+				if err := e.Store.AddEvent(runID, "reject", nodeID,
+					"identical failure repeated without progress (no model in loop): "+detail); err != nil {
+					return true, fmt.Errorf("persist identical-fail event: %w", err)
+				}
+				if err := e.Store.UpsertRunNode(store.RunNode{RunID: runID, Node: nodeID, Status: "failed", Escalation: esc, UpdatedAt: store.NowISO()}); err != nil {
+					return true, fmt.Errorf("persist identical-fail node: %w", err)
+				}
+				if err := e.Store.SaveRun(store.RunState{ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO()}); err != nil {
+					return true, fmt.Errorf("persist identical-fail run: %w", err)
+				}
 				e.WriteDossier(runID, nodeID)
 				return true, nil
 			}
@@ -215,15 +282,24 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 	// Success (no run, or run succeeded): mark done, persist declared touched,
 	// and record the git-diff OBSERVATION (never a routing input — D0.1).
 	obs := e.observe(node)
-	_ = e.Store.UpsertRunNode(store.RunNode{
+	if err := e.Store.UpsertRunNode(store.RunNode{
 		RunID: runID, Node: nodeID, Status: "done", Touched: node.Produces,
 		Ceremony: dec.Ceremony, DeclaredObs: obs, Escalation: esc, UpdatedAt: store.NowISO(),
-	})
+	}); err != nil {
+		// Refuse to let the run claim completion while the node's done-state
+		// failed to persist — that divergence is the failure mode reviews
+		// flagged. The caller surfaces it; nothing is marked completed.
+		return false, fmt.Errorf("persist done-node %s: %w", nodeID, err)
+	}
 	done[nodeID] = true
-	_ = e.Store.AddEvent(runID, "done", nodeID, obs)
+	if err := e.Store.AddEvent(runID, "done", nodeID, obs); err != nil {
+		return false, fmt.Errorf("persist done event: %w", err)
+	}
 	// Stamp the check outcome onto the routing span (field report bug 8): the
 	// decision is recorded pre-execution, but leaving verify=unknown forever
 	// starves harvest/scorecard of real pass data when the check ran green.
+	// Deliberately best-effort: this is telemetry enrichment on an already-
+	// persisted decision; failure changes no admission and loses only a label.
 	if node.Run != "" {
 		_, _ = e.Store.DB.Exec(`UPDATE routing_decisions SET verify_status='passed'
 			WHERE verify_status != 'verified' AND id=(SELECT id FROM routing_decisions
@@ -239,21 +315,31 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 func (e *Engine) failNode(runID string, wf *Workflow, nodeID string, esc int, escal map[string]int, reason string) (bool, error) {
 	newEsc := esc + 1
 	if newEsc > routing.MaxEscalation {
-		_ = e.Store.UpsertRunNode(store.RunNode{
+		if err := e.Store.UpsertRunNode(store.RunNode{
 			RunID: runID, Node: nodeID, Status: "failed", Escalation: newEsc, UpdatedAt: store.NowISO(),
-		})
-		_ = e.Store.SaveRun(store.RunState{
+		}); err != nil {
+			return true, fmt.Errorf("persist exhausted failed-node: %w", err)
+		}
+		if err := e.Store.SaveRun(store.RunState{
 			ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO(),
-		})
-		_ = e.Store.AddEvent(runID, "reject", nodeID, "escalation budget exhausted (max 2): "+reason)
+		}); err != nil {
+			return true, fmt.Errorf("persist exhausted rejected run: %w", err)
+		}
+		if err := e.Store.AddEvent(runID, "reject", nodeID, "escalation budget exhausted (max 2): "+reason); err != nil {
+			return true, fmt.Errorf("persist exhaustion event: %w", err)
+		}
 		e.WriteDossier(runID, nodeID)
 		return true, nil
 	}
 	escal[nodeID] = newEsc
-	_ = e.Store.UpsertRunNode(store.RunNode{
+	if err := e.Store.UpsertRunNode(store.RunNode{
 		RunID: runID, Node: nodeID, Status: "failed", Escalation: newEsc, UpdatedAt: store.NowISO(),
-	})
-	_ = e.Store.AddEvent(runID, "escalate", nodeID, fmt.Sprintf("%s; retry at higher tier (attempt %d/3)", reason, newEsc+1))
+	}); err != nil {
+		return true, fmt.Errorf("persist failed-node %s: %w", nodeID, err)
+	}
+	if err := e.Store.AddEvent(runID, "escalate", nodeID, fmt.Sprintf("%s; retry at higher tier (attempt %d/3)", reason, newEsc+1)); err != nil {
+		return true, fmt.Errorf("persist escalate event: %w", err)
+	}
 	return false, nil // not paused -> Run re-picks this node and re-routes
 }
 
@@ -305,6 +391,9 @@ func (e *Engine) WriteDossier(runID, nodeID string) {
 		Local:     true,
 		Ceremony:  "light",
 	}
+	// Best-effort by design: the dossier is a derived synthesis for humans;
+	// if it cannot be written the rejection itself is still durably recorded
+	// (checked above), and WriteDossier already no-ops on read errors.
 	_, _ = e.Store.UpsertArtifact(a)
 }
 
@@ -326,12 +415,28 @@ func contextIDsOf(ctxJSON string) []string {
 // repo state. So before trusting, we run verification.Run LIVE against the repo
 // and persist the result. Only status=="verified" counts as a real hit.
 //
-// Matching is by node-id tag (exact task) OR topic-tag intersection (rd:
-// compounding) — a later task sharing a topic tag inherits verified knowledge
-// from an earlier one. Route purity is untouched: this is engine-side signal
-// gathering, and only LIVE-VERIFIED artifacts may ever vote.
+// Retrieval is TAG-FIRST (external review finding: the previous FTS-only
+// candidate pull made topic compounding accidentally dependent on summary
+// wording — an artifact whose text never mentioned the next node's id/kind
+// could never be retrieved by a later same-topic task, silently killing the
+// L6 compounding loop). Exact node-id tag and every topic tag are queried
+// directly; FTS over id/kind remains only as a legacy candidate source. The
+// eligibility filter is unchanged either way: exact node-id tag or shared
+// topic tag, accepted status, LIVE-verified before any vote. Route purity is
+// untouched: this is engine-side signal gathering.
 func (e *Engine) memoryHitForNode(node Node) (bool, string, []string) {
 	cands := map[string]store.Artifact{}
+	for _, tag := range append([]string{node.ID}, node.Tags...) {
+		if tag == "" {
+			continue
+		}
+		res, err := e.Store.SearchArtifactsTagged("", "", "", tag, 10)
+		if err == nil {
+			for _, a := range res {
+				cands[a.ID] = a
+			}
+		}
+	}
 	for _, q := range []string{node.ID, node.Kind} {
 		res, err := e.Store.SearchArtifacts(q, "", "", 10)
 		if err == nil {
@@ -363,6 +468,10 @@ func (e *Engine) memoryHitForNode(node Node) (bool, string, []string) {
 		}
 		// LIVE gate: verify against the repo right now, then persist.
 		res := verification.Run(a, e.repo())
+		// Deliberately ignored: THIS route already gates on res.Status in
+		// memory; SetVerify only refreshes the cache column for later
+		// sessions. A failed write costs a re-verify next time, never a
+		// wrong admission now (state-machine writes elsewhere are checked).
 		_ = e.Store.SetVerify(a.ID, res.Status)
 		if res.Status == "verified" {
 			verifiedIDs = append(verifiedIDs, a.ID)
@@ -407,6 +516,8 @@ func (e *Engine) Seed(nodeID, kind, tagKind, summary, verifyCmd, verifyKind stri
 		return
 	}
 	res := verification.Run(a, e.repo())
+	// Ignored by design: Seed is a demo helper; the seeded artifact's status
+	// is re-established live at every route regardless of the cached column.
 	_ = e.Store.SetVerify(id, res.Status)
 }
 
