@@ -1213,3 +1213,41 @@ engineers were discovered by red tests hours later. Two fixes:
 
 Also codified in broker.md §5 spirit: takeover prompts are SURGICAL (one job,
 zero pool interaction); "follow AGENTS.md" is for fresh sessions only.
+
+## R12 — controlled A/B experiment: wikirag solo vs fleet (2026-08-23)
+
+Same canonical SPEC.md/compose/schema/dod.sh committed identically to two
+repos; same Definition-of-Done gate script; both autonomous.
+
+### Results
+
+| metric | ARM A solo (nemotron only) | ARM B fleet (architect + 4 tiered lanes) |
+|---|---|---|
+| wall to DOD-PASS | **1199s (19.9 min)** | 2685s (44.7 min) |
+| sessions | 1 | 5 (4 lanes + 1 takeover) |
+| architect interventions | 0 by construction | 2 logged |
+| end state | all tests green, 2 commits | all green, 6 pkgs, DoD gate pass |
+| ward pool usage | none (empty pool -> direct work, protocol-correct) | 12 decisions, 4 tasks done+captured |
+
+### Verdict: SOLO WON at this scale - exactly as pre-declared falsifiable
+
+The experiment's stated falsifier was "if solo <= fleet wall-clock, nitro
+fails for small projects". Confirmed: 19.9min vs 44.7min (~2.3x slower).
+Overheads were real and named: parallel startup, a lane that finished work
+but skipped closure (takeover cost), Docker Desktop daemon sleeping mid-wave
+(environment), and supervisor fragility during the stall.
+
+Where ward still earned its keep IN THE FLEET ARM: every failure was visible,
+attributed, and recoverable; nothing false-done; the takeover path worked.
+And Arm A validated something unexpected: protocol v4 let a single strong
+model finish a whole greenfield app in ONE session with zero interventions -
+the multi-session consistency machinery wasn't even needed yet.
+
+### Standing conclusion for ward's positioning
+
+- Small greenfield + strong model available + precise spec => USE SOLO. Fleet
+  overhead dominates.
+- Fleet pays when: work exceeds one session's context, lanes are long/independent,
+  specialist tiers matter, or the worker is weaker than the strongest tier.
+- Next experiments should probe THAT boundary (bigger scope, weaker solo model,
+  longer horizon), not re-run this shape.
