@@ -1,0 +1,49 @@
+#!/bin/sh
+# fleet-launch — supervised parallel engineer dispatch for ward pools.
+#
+# Fixes the campaign's failure mode (L10): engineers were launched detached,
+# then "supervised" by a polling loop living in an unrelated tool call - when
+# that call died, supervision died and engineers were found dead much later.
+#
+# Instead: this script IS the supervisor. It blocks on every child PID, writes
+# per-lane completion markers, and prints a verdict table on exit. Run it as
+# ONE bounded tool call; if the caller dies, markers still land.
+#
+# Usage:
+#   scripts/fleet-launch REPO_DIR SPEC_FILE
+# where SPEC_FILE lines are:  <name>|<model>|<prompt-file>
+# Markers: REPO_DIR/.fleet/<name>.exit  (0=clean, N=exit code)
+set -u
+
+REPO="${1:?usage: fleet-launch REPO_DIR SPEC_FILE}"
+SPEC="${2:?usage: fleet-launch REPO_DIR SPEC_FILE}"
+MARK="$REPO/.fleet"
+mkdir -p "$MARK"
+
+pids=""
+names=""
+while IFS='|' read -r name model promptfile; do
+  [ -z "${name:-}" ] && continue
+  case "$name" in \#*) continue;; esac
+  prompt=$(cat "$promptfile")
+  (
+    cd "$REPO" || exit 99
+    WARD_HOME="$REPO/.ward" opencode run -m "$model" "$prompt" \
+      > "$MARK/$name.log" 2>&1
+    echo $? > "$MARK/$name.exit"
+  ) &
+  pids="$pids $!"
+  names="$names $name"
+done < "$SPEC"
+
+fail=0
+i=0
+for p in $pids; do
+  n=${names# }
+  wait "$p"; rc=$?
+  echo "lane ${n%% *} exit=$rc"
+  [ "$rc" -ne 0 ] && fail=$((fail+1))
+  i=$((i+1))
+done
+echo "fleet: $(echo $names | wc -w | tr -d ' ') lanes, $fail nonzero"
+exit $(( fail > 0 ? 1 : 0 ))

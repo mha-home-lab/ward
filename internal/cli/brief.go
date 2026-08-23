@@ -132,6 +132,24 @@ func briefCmd() *cobra.Command {
 				b.Next = append([]string{"STALE CHIPS detected: recompile with ward skill pack <topic>"}, b.Next...)
 			}
 
+			// Dead-agent signal (L10): claims aging past 30 minutes with no
+			// closure are either long work or a dead session - high signal,
+			// cheap to check.
+			stale, err := s.StaleClaims(30)
+			if err == nil && len(stale) > 0 {
+				_ = stale
+				b.StaleClaims = make([]map[string]string, 0, len(stale))
+				for _, t := range stale {
+					b.StaleClaims = append(b.StaleClaims, map[string]string{
+						"id": t.ID, "by": orDefault(t.ClaimedBy, "?"), "mins_aged": "30+",
+						"title": t.Title,
+					})
+					b.Next = append(b.Next,
+						fmt.Sprintf("STALE CLAIM %s held by %s since >30m: verify holder alive; recover with ward task take %s --by <you>",
+							t.ID, orDefault(t.ClaimedBy, "?"), t.ID))
+				}
+			}
+
 			b.Next = nextActions(b)
 			if compact {
 				// Budget-aware mode (rd:c2 a5fee2fa): small models choke on
@@ -180,6 +198,7 @@ type brief struct {
 	OpenTasks     []map[string]string `json:"open_tasks,omitempty"`
 	Health        map[string]int      `json:"health"`
 	StaleChips    []string            `json:"stale_chips,omitempty"`
+	StaleClaims   []map[string]string `json:"stale_claims,omitempty"`
 	Next          []string            `json:"next"`
 }
 
@@ -288,6 +307,9 @@ func printHumanBrief(b brief) {
 	}
 	for _, sc := range b.StaleChips {
 		fmt.Println("STALE CHIP: " + sc)
+	}
+	for _, scl := range b.StaleClaims {
+		fmt.Printf("STALE CLAIM: %s held by %s (%s)\n", scl["id"], scl["by"], scl["title"])
 	}
 	if len(b.Claims) > 0 {
 		fmt.Println("active claims:")

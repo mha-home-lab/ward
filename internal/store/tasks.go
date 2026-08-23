@@ -346,3 +346,32 @@ func (s *Store) EngineerScorecards() ([]EngineerScore, error) {
 	sort.Slice(out, func(i, j int) bool { return out[i].Done > out[j].Done })
 	return out, nil
 }
+
+// StaleClaims returns claimed tasks whose claim is older than mins minutes -
+// the high-signal dead-agent detector: a live engineer closes or fails its
+// task; a silent one leaves a claim aging in place (rd:c1, campaign L10).
+func (s *Store) StaleClaims(mins int) ([]Task, error) {
+	rows, err := s.DB.Query(`SELECT id, title, kind, tier_floor, tier_rank, status,
+		claimed_by, claimed_at, workflow_path, verify_cmd, run, tags, escalation, created_at, updated_at
+		FROM tasks WHERE status='claimed'
+		AND claimed_at <= datetime('now', '-' || ? || ' minutes')
+		ORDER BY claimed_at ASC`, mins)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Task
+	for rows.Next() {
+		var t Task
+		var cb, ca, wp, vc, rn, tagsRaw sql.NullString
+		if err := rows.Scan(&t.ID, &t.Title, &t.Kind, &t.TierFloor, &t.TierRank, &t.Status,
+			&cb, &ca, &wp, &vc, &rn, &tagsRaw, &t.Escalation, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		t.ClaimedBy, t.ClaimedAt, t.WorkflowPath = nullStr(cb), nullStr(ca), nullStr(wp)
+		t.VerifyCmd, t.Run = nullStr(vc), nullStr(rn)
+		t.Tags = parseTags(nullStr(tagsRaw))
+		out = append(out, t)
+	}
+	return out, nil
+}

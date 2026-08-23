@@ -1195,3 +1195,21 @@ Net: fleets win when lanes are truly independent and specs precise; they LOSE
 when the architect's supervision layer is fragile. Ward made every failure
 recoverable and honest - that part is proven. The boost is real but bounded
 by orchestration quality above it, which is mine.
+
+## R11 — dead-agent signal + fleet-launch supervisor (2026-08-23)
+
+The mdq stall's root cause was MY harness: fire-detached-then-poll-from-a-
+different-tool-call. When the poller died, supervision died with it and dead
+engineers were discovered by red tests hours later. Two fixes:
+
+1. **scripts/fleet-launch**: the supervisor IS a bounded blocking call - it
+   launches lanes, waits on child PIDs directly, writes .fleet/<lane>.exit
+   markers, prints a verdict table. No polling loop to die; markers survive
+   caller death. (claude-cli-style: launch-and-block, not fire-and-pray.)
+2. **Stale-claim signal in ward**: brief now surfaces claims held >30 minutes
+   ("verify holder alive; recover with take") - dead engineers get HIGH signal
+   at session start instead of being found via red tests. Drill-proven on
+   mdq: backdated ghost claim appeared in brief, recovered via take+run.
+
+Also codified in broker.md §5 spirit: takeover prompts are SURGICAL (one job,
+zero pool interaction); "follow AGENTS.md" is for fresh sessions only.
