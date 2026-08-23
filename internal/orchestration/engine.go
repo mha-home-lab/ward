@@ -184,6 +184,19 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 		}
 		_ = e.Store.AddEvent(runID, "exec", nodeID, detail)
 		if rerr != nil {
+			// Pre-flight gate (rd:c2 bfd02833): these signatures mean the
+			// CHECK ITSELF cannot run (missing target file, uninstalled
+			// module, nothing collected) — the work is not wrong, the gate
+			// is. Reject immediately without burning a single escalation:
+			// stronger tiers cannot execute a broken check either.
+			if preFlightBrokenCheck(detail) {
+				_ = e.Store.AddEvent(runID, "reject", nodeID,
+					"preflight: check is non-executable (fix the task's run/verify command): "+detail)
+				_ = e.Store.UpsertRunNode(store.RunNode{RunID: runID, Node: nodeID, Status: "failed", Escalation: esc, UpdatedAt: store.NowISO()})
+				_ = e.Store.SaveRun(store.RunState{ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO()})
+				e.WriteDossier(runID, nodeID)
+				return true, nil
+			}
 			// Identical-failure short-circuit: no model in the loop means the
 			// retry is byte-identical work; a tier climb cannot change it.
 			if node.Prompt == "" && e.lastFail[nodeID] == detail && esc > 0 {
@@ -492,4 +505,28 @@ func (e *Engine) escalMap(runID string) (map[string]int, error) {
 
 func sha8run(s string) string {
 	return store.SHA8(s)
+}
+
+// preFlightBrokenCheck reports whether a failed check's output means the
+// check could not EXECUTE (as opposed to executing and failing): missing test
+// files, uninstalled modules, nothing collected. These waste escalation
+// budget on every tier because the failure is independent of the work.
+func preFlightBrokenCheck(detail string) bool {
+	signatures := []string{
+		"file or directory not found",
+		"directory not found",
+		"no such file or directory",
+		"ModuleNotFoundError",
+		"ImportError while importing",
+		"no tests to run",
+		"[setup failed]",
+		"go.mod file not found",
+		"command not found",
+	}
+	for _, sig := range signatures {
+		if strings.Contains(detail, sig) {
+			return true
+		}
+	}
+	return false
 }

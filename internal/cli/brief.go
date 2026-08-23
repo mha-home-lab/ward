@@ -17,6 +17,7 @@ import (
 func briefCmd() *cobra.Command {
 	var repo string
 	var limit int
+	var compact bool
 	c := &cobra.Command{
 		Use:   "brief [topic]",
 		Short: "session bootstrap: verify, sweep, and report what matters right now",
@@ -121,6 +122,23 @@ func briefCmd() *cobra.Command {
 			}
 
 			b.Next = nextActions(b)
+			if compact {
+				// Budget-aware mode (rd:c2 a5fee2fa): small models choke on
+				// unbounded context; trim summaries and drop the health block.
+				for i := range b.Knowledge {
+					r := []rune(b.Knowledge[i].Summary)
+					if len(r) > 80 {
+						b.Knowledge[i].Summary = string(r[:80]) + "..."
+					}
+				}
+				for i := range b.OpenTasks {
+					r := []rune(b.OpenTasks[i]["title"])
+					if len(r) > 60 {
+						b.OpenTasks[i]["title"] = string(r[:60]) + "..."
+					}
+				}
+				b.Health = nil
+			}
 
 			if jsonOut {
 				printJSON(b)
@@ -132,6 +150,7 @@ func briefCmd() *cobra.Command {
 	}
 	c.Flags().StringVar(&repo, "repo", "", "repo root for verification")
 	c.Flags().IntVar(&limit, "limit", 5, "max knowledge hits to show")
+	c.Flags().BoolVar(&compact, "compact", false, "token-budgeted output: trimmed summaries, no health block")
 	return c
 }
 
@@ -261,8 +280,10 @@ func printHumanBrief(b brief) {
 			fmt.Printf("  topic=%s by=%s expires=%s\n", cl["topic"], cl["by"], cl["expires"])
 		}
 	}
-	fmt.Printf("store: accepted=%d verified=%d proposed=%d\n",
-		b.Health["accepted"], b.Health["verified"], b.Health["proposed"])
+	if b.Health != nil {
+		fmt.Printf("store: accepted=%d verified=%d proposed=%d\n",
+			b.Health["accepted"], b.Health["verified"], b.Health["proposed"])
+	}
 	fmt.Println("next:")
 	for i, n := range b.Next {
 		fmt.Printf("  %d. %s\n", i+1, n)
