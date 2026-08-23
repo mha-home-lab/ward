@@ -1405,3 +1405,36 @@ specs, what was rejected with rationale.
    agents. This is the experiment openai argued matters more than another
    1000 lines of ward; it also matches R12/R13's own conclusion that the
    next probe should change scale/heterogeneity, not re-run solo-vs-fleet.
+
+## Estate tidy-up + mdq decision (2026-08-23): everything closed, simulation-ready
+
+Mandate: close all open ends so the next session runs data-producing
+simulations instead of cleanup.
+
+### mdq — decided, not limbo
+mdq (jq-for-markdown, born as R10's greenfield verification target) stays a
+STANDALONE project and is designated ward's standing simulation target: small
+real Go codebase, honest tests, drained pool. It is NOT absorbed into ward —
+ward is a routing/verification control plane; a markdown query tool inside it
+is vanity dogfood and scope creep. Its next backlog items are the task source
+for the heterogeneous-fleet experiment (.spec/simulation.md).
+
+### Simulation protocol consolidated
+.spec/simulation.md (Active discipline): pre-declared falsifier mandatory,
+two arms minimum (independent vs pool-coordinated), the standing metric
+battery (duplicate-work rate, cheap-hit %, escalations, interventions,
+failure attribution), isolation rules from R13 (sequential when stacks share
+ports; docker daemon wake before DoD gates), void rule for contaminated runs,
+results log appended per experiment. The two seeded pool tasks are its queue.
+
+### Estate sweep results (all verified, none assumed)
+- Stores audited with v0.8.0-dirty binary: ward, mdq, donate-fair,
+  secure-bank, wikirag-solo, wikirag-fleet, admin-bot — ALL migrated cleanly
+  to user_version=6 (workflow_hash additive migration proven on 7 real DBs).
+- Pools: zero open tasks everywhere except ward's own two seeded experiment
+  tasks (intentional queue). Zero open runs. Zero active claims.
+- Waves re-run green post-migration: mdq 2/2, donate-fair 3/3,
+  secure-bank 2/2 verified, 0 drift.
+- No stray wikirag stacks; port 8092 free; running docker containers belong
+  to unrelated projects (left untouched). /tmp throwaway clones removed.
+- public_agent_feedback committed in 87e4197 (review provenance preserved).
