@@ -809,3 +809,37 @@ Concurrent store access from three processes without a single SQLITE_BUSY
 failure (WAL + busy_timeout held); atomic claim contention resolved correctly;
 captures verified on next brief; pool drained to empty within budgets.
 
+## v0.6 — R&D loop: explorers propose, architect evaluates (2026-08-23)
+
+Ported chef `rd-001` and extended it with the feed chef never had: ward's own
+telemetry. Spec: `.spec/research.md`.
+
+### Shipped
+
+- **`ward harvest`** (`internal/cli/harvest.go`): the R&D data spine — tier
+  distribution, cheap+verified rate (the thesis metric), tasks by status,
+  bounce leaders (authoring suspects), knowledge reuse, drift counts, dossier
+  themes. Observer-only; human + `--json`. Test: `TestHarvestReportsTelemetry`.
+- **Explorer protocol** (spec, no code needed): explorers propose via
+  `memory put --ceremony full --by rd-explorer --tags rd:<topic>` (stays
+  `proposed`, never auto-accepted); architect records verdicts via
+  promote/supersede with reasons. Every lifecycle primitive already existed —
+  the loop is a discipline, now written down.
+- Spec index gains `research.md`.
+
+### Proven end-to-end on donate-fair
+
+Explorer (hy3-free) proposed 2 artifacts on "acceptance checks" without
+duplicating store knowledge and without crossing the gate. Architect verdicts:
+`fb735d08` PROMOTED (fair_allocate invariant checklist — directly addresses
+our bounced-task check-authoring problem), `da528705` SUPERSEDED with
+merge-reason (hypothesis dependency too heavy). Trail greppable via
+`memory list --status superseded` + get.
+
+### First harvest readings (real stores)
+
+secure-bank: cheap+verified 17% of 35 decisions (thesis metric low because
+most nodes run once; captures verified only help repeat work) — bounce leader
+was the blocked webhook task. donate-fair: 0% cheap (single-run nodes),
+bounce-free after wave-1 adjudication.
+

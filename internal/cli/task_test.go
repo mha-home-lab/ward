@@ -281,6 +281,39 @@ func TestTaskTakeRecoversDeadSessionClaim(t *testing.T) {
 	}
 }
 
+func TestHarvestReportsTelemetry(t *testing.T) {
+	t.Setenv("WARD_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+
+	s, _ := store.Open()
+	now := store.NowISO()
+	// One cheap+verified decision, one miss.
+	for _, d := range []store.RoutingDecision{
+		{RunID: "r1", Node: "n1", Tier: "cheap", MemoryHit: true, VerifyStatus: "verified", CreatedAt: now},
+		{RunID: "r2", Node: "n2", Tier: "mid", CreatedAt: now},
+	} {
+		if err := s.AddRoutingDecision(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id, err := s.CreateTask(store.Task{Title: "bouncer", TierFloor: "mid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.ClaimNextTask("a", "strong"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FailTask(id); err != nil {
+		t.Fatal(err)
+	}
+	s.DB.Close()
+
+	h := harvestCmd()
+	if err := h.Execute(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTaskRunRequiresClaimedTask(t *testing.T) {
 	t.Setenv("WARD_HOME", t.TempDir())
 	t.Chdir(t.TempDir())

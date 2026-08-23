@@ -395,6 +395,33 @@ func (s *Store) AddRoutingDecision(d RoutingDecision) error {
 	return err
 }
 
+// AllRoutingDecisions returns up to limit recent decisions across all runs
+// (harvest telemetry; observer-only).
+func (s *Store) AllRoutingDecisions(limit int) ([]RoutingDecision, error) {
+	rows, err := s.DB.Query(`SELECT run_id, node, tier, model, ceremony_level, memory_hit,
+		verify_status, contention, escalated_from, reason, context, contention_inputs, created_at
+		FROM routing_decisions ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RoutingDecision
+	for rows.Next() {
+		var d RoutingDecision
+		var mh, con int
+		var ctx sql.NullString
+		if err := rows.Scan(&d.RunID, &d.Node, &d.Tier, &d.Model, &d.Ceremony, &mh,
+			&d.VerifyStatus, &con, &d.EscalatedFrom, &d.Reason, &ctx, &d.ContentionJSON, &d.CreatedAt); err != nil {
+			return nil, err
+		}
+		d.MemoryHit = mh != 0
+		d.Contention = con != 0
+		d.Context = nullStr(ctx)
+		out = append(out, d)
+	}
+	return out, nil
+}
+
 // RoutingDecisionsForRun returns all decisions for a run (for measurement).
 func (s *Store) RoutingDecisionsForRun(runID string) ([]RoutingDecision, error) {
 	rows, err := s.DB.Query(`SELECT run_id, node, tier, model, ceremony_level, memory_hit,
