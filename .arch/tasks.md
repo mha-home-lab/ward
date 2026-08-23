@@ -922,3 +922,52 @@ review's findings and their fixes.
 Spec domains ship as Draft, go through adversarial review, THEN flip Active.
 Feature pushes pause when a review flags pacing — this entry is the pause.
 
+## Simulation: the self-learning loop, measured end-to-end (2026-08-23, donate-fair wave-2)
+
+First full cycle run as one continuous experiment rather than proven
+piecemeal. Design: chip `ward-rd-checks` (promoted invariant checklist) was
+already compiled; two real Phase-3 tasks were seeded whose acceptance checks
+follow that standard; two mid engineers ran in parallel with one-line prompts;
+a strong engineer completed bounced work; harvest before/after.
+
+### What transferred (loop works)
+
+- **Content learning is real.** wave2-a's property tests assert exactly the
+  promoted checklist — conservation, floor, non-negativity, proportionality,
+  degenerate inputs — unprompted beyond the task title. wave2-b proved the
+  replay-exactly-once invariant first-run (no bounce). 27 tests green at close.
+- Escalation-as-designed: bounced work re-entered at strong and was finished
+  there, honestly.
+
+### What did NOT transfer (honest scorecard)
+
+- **Bounce rate unchanged** (1 bounce / 2 tasks this wave vs prior waves) —
+  but the cause MOVED: no longer check-authoring quality (the chip's win),
+  now process/infra failures.
+- cheap_verified stayed 0%: single-run nodes never reuse knowledge. The thesis
+  metric only moves with repeated work — a structural limitation to remember
+  when reading that number.
+
+### Loop defects discovered BY the simulation (recorded for review, not yet built)
+
+- **L1 — premature verification burns the budget.** Agents run `task run`
+  before implementing; "file not found" fails all 3 attempts and escalates a
+  non-problem. Candidate fix (tiny): `task next` hint becomes "implement
+  FIRST, then ward task run". Needs review like everything else.
+- **L2 — verdict reasons aren't compilable knowledge.** da528705 was superseded
+  with reason "hypothesis adds weight" — precisely the mistake wave2-a then
+  made (added hypothesis anyway), because rejection reasons live in
+  supersede_reasons where the chip compiler can't see them.
+  Proposed amendment to research.md: when a rejection carries a transferable
+  lesson, the architect ALSO writes it as a `feedback` artifact so it compiles
+  into chips as a "Watch out" section.
+- **L3 — dependency additions escape every gate**: requirements.txt changed
+  unchecked by an engineer. Related to L2's lesson; candidate authoring rule
+  for future tasks ("no new deps" or "deps are their own task").
+
+### Verdict
+
+The loop learns where knowledge is compilable and gated; it doesn't learn
+where lessons hide in verdict prose or process habits. The next unit of work
+on ward itself is therefore spec amendments for L1/L2 — through review first.
+
