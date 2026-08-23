@@ -28,6 +28,8 @@ func taskDropCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "drop <id>",
 		Short: "reject a task by human decision (blocked, obsolete, or out of scope)",
+		Example: `  ward task drop task-1a2b
+  ward task drop task-1a2b --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(errNeedID)
@@ -60,6 +62,8 @@ func taskTakeCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "take <id>",
 		Short: "take over a task's claim (recover from a dead session, or acquire an open one)",
+		Example: `  ward task take task-1a2b --by architect
+  ward task take task-1a2b --by ox-alpha --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(errNeedID)
@@ -94,6 +98,9 @@ func taskAddCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "add <title>",
 		Short: "create a claimable work item (no YAML required)",
+		Example: `  ward task add "fix login redirect" --tier mid --run "go test ./..."
+  ward task add "write auth spec" --kind test --verify-cmd "test -s .spec/auth.md" --tags topic:auth
+  ward task add "tiny cleanup" --tier cheap --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(fmt.Errorf("task needs a title"))
@@ -135,6 +142,8 @@ func taskNextCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "next",
 		Short: "atomically pull the highest-floor open task your budget admits",
+		Example: `  ward task next --by agent-3 --max-tier mid
+  ward task next --by atlas --max-tier strong --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if by == "" {
 				return failErr(fmt.Errorf("--by <agent-name> is required (claims must be attributable)"))
@@ -183,6 +192,8 @@ func taskRunCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "run <id>",
 		Short: "execute a claimed task end-to-end: generate workflow, run, capture, close",
+		Example: `  ward task run task-1a2b
+  ward task run task-1a2b --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(errNeedID)
@@ -279,6 +290,9 @@ func taskListCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "list",
 		Short: "list tasks in the pool",
+		Example: `  ward task list
+  ward task list --status open -n 20
+  ward task list --status done --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
@@ -288,6 +302,9 @@ func taskListCmd() *cobra.Command {
 			ts, err := s.ListTasks(status, limit)
 			if err != nil {
 				return failErr(err)
+			}
+			if ts == nil {
+				ts = []store.Task{}
 			}
 			if jsonOut {
 				printJSON(ts)
@@ -303,7 +320,7 @@ func taskListCmd() *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&status, "status", "", "open|claimed|done|rejected")
-	c.Flags().IntVar(&limit, "limit", 50, "max tasks")
+	c.Flags().IntVarP(&limit, "limit", "n", 50, "max tasks")
 	return c
 }
 
@@ -312,6 +329,8 @@ func taskDoneCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "done <id>",
 		Short: "mark a claimed task completed",
+		Example: `  ward task done task-1a2b --by agent-3
+  ward task done task-1a2b --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(errNeedID)
@@ -341,6 +360,8 @@ func taskFailCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "fail <id>",
 		Short: "release a claimed task back to the pool at one tier higher (rejected past strong)",
+		Example: `  ward task fail task-1a2b
+  ward task fail task-1a2b --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(errNeedID)
@@ -376,6 +397,8 @@ func taskWorkflowCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "workflow <id>",
 		Short: "generate a runnable single-node workflow for a claimed task",
+		Example: `  ward task workflow task-1a2b
+  ward task workflow task-1a2b --out workflows/auth.yaml --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(errNeedID)

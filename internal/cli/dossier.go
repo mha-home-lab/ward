@@ -16,6 +16,8 @@ func rejectCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "reject <runID>",
 		Short: "show the reject dossier for an exhausted run (evidence, not a void)",
+		Example: `  ward reject run-9c1d
+  ward reject run-9c1d --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(fmt.Errorf("need a run id"))
@@ -31,6 +33,9 @@ func rejectCmd() *cobra.Command {
 			}
 			if jsonOut {
 				dossiers, _ := s.SearchArtifacts("reject:"+args[0], "", "", 10)
+				if dossiers == nil {
+					dossiers = []store.Artifact{}
+				}
 				printJSON(map[string]any{"run": r, "dossiers": dossiers})
 				return nil
 			}

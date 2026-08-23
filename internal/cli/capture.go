@@ -159,6 +159,9 @@ func captureCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "capture",
 		Short: "write a verified claim for a completed node (result capture, flow.md step 7)",
+		Example: `  ward capture --run run-3f2a
+  ward capture --node work-task-12 --workflow workflows/task-12.yaml --tag topic:auth
+  ward capture --run run-3f2a --verify-cmd "go test ./..." --verify-kind test --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
@@ -195,7 +198,7 @@ func captureCmd() *cobra.Command {
 				return failErr(fmt.Errorf("need --run <id> or --node <id> --workflow <path>"))
 			}
 
-			var captured []string
+			captured := []string{}
 			if runID != "" {
 				nodes, _ := s.LoadRunNodes(runID)
 				st := map[string]string{}

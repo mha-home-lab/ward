@@ -15,6 +15,8 @@ func scorecardCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "scorecard",
 		Short: "engineer performance from dispatch-pool outcomes (done/bounced/rejected)",
+		Example: `  ward scorecard
+  ward scorecard --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {

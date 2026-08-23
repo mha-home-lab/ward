@@ -34,6 +34,9 @@ func skillPackCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "pack <topic>",
 		Short: "compile accepted knowledge for a topic into .opencode/skills/<chip>/SKILL.md",
+		Example: `  ward skill pack rd:checks
+  ward skill pack agent-reliability --tag portable:agent-reliability --out ~/.config/opencode/skills/ward-agent-reliability
+  ward skill pack auth --project secure-bank --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(fmt.Errorf("pack needs a topic"))
@@ -99,6 +102,9 @@ func skillCheckCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "check <chip-dir>",
 		Short: "report whether a compiled chip's sources have drifted (stale chip = recompile)",
+		Example: `  ward skill check .opencode/skills/ward-rd-checks
+  ward skill check ward-agent-reliability
+  ward skill check .opencode/skills/ward-auth --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(errNeedID)

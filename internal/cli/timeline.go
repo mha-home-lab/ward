@@ -19,6 +19,9 @@ func timelineCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "timeline",
 		Short: "unified activity stream: routing spans with durations, task transitions, captures",
+		Example: `  ward timeline
+  ward timeline -n 10
+  ward timeline --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
@@ -122,7 +125,7 @@ func timelineCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().IntVar(&limit, "limit", 40, "max entries")
+	c.Flags().IntVarP(&limit, "limit", "n", 40, "max entries")
 	return c
 }
 

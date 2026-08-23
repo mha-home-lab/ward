@@ -17,6 +17,9 @@ func routeCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "route <node>",
 		Short: "apply the pure router to one node (no LLM call)",
+		Example: `  ward route impl --kind test --memory-hit --verify-status verified
+  ward route impl --kind test --contention
+  ward route impl --escalation 3 --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			node := "default"
 			if len(args) > 0 {
@@ -58,6 +61,9 @@ func routerCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "router",
 		Short: "run the OIDC slice end-to-end and report routing measurement",
+		Example: `  ward router --seed --auto-approve
+  ward router --seed-stale --auto-approve
+  ward router --workflow workflows/parallel-demo.yaml --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
@@ -93,6 +99,9 @@ func routerCmd() *cobra.Command {
 			decs, err := s.RoutingDecisionsForRun(runID)
 			if err != nil {
 				return failErr(err)
+			}
+			if decs == nil {
+				decs = []store.RoutingDecision{}
 			}
 			summary := measure(decs)
 			if jsonOut {

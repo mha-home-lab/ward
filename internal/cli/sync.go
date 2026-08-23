@@ -20,6 +20,8 @@ func syncCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "skill-sync",
 		Short: "push all portable:<topic> knowledge to the global skills directory",
+		Example: `  ward skill-sync
+  ward skill-sync --dir ~/.config/opencode/skills --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
@@ -30,18 +32,16 @@ func syncCmd() *cobra.Command {
 			if err != nil {
 				return failErr(err)
 			}
+			if topics == nil {
+				topics = []string{}
+			}
 			if dir == "" {
 				home, _ := os.UserHomeDir()
 				dir = filepath.Join(home, ".config", "opencode", "skills")
 			}
-			if jsonOut {
-				printJSON(map[string]any{"topics": topics, "dir": dir})
-				return nil
-			}
-			if len(topics) == 0 {
-				printLine("no portable:<topic> knowledge accepted yet")
-				return nil
-			}
+			// The sync happens in BOTH modes: --json is a machine-readable
+			// report of the same work, never a silent dry-run.
+			synced := make([]map[string]any, 0, len(topics))
 			for _, t := range topics {
 				name := chipNameFor(strings.TrimPrefix(t, "portable:"))
 				srcs, err := s.SearchArtifactsTagged("", "", "", t, 50)
@@ -55,7 +55,18 @@ func syncCmd() *cobra.Command {
 				if err := os.WriteFile(path, []byte(renderChip(name, t, s.Home, srcs)), 0o644); err != nil {
 					return failErr(err)
 				}
-				fmt.Printf("synced %-24s (%d sources) -> %s\n", t, len(srcs), path)
+				synced = append(synced, map[string]any{"topic": t, "sources": len(srcs), "path": path})
+			}
+			if jsonOut {
+				printJSON(map[string]any{"dir": dir, "topics": topics, "synced": synced})
+				return nil
+			}
+			if len(topics) == 0 {
+				printLine("no portable:<topic> knowledge accepted yet")
+				return nil
+			}
+			for _, sy := range synced {
+				fmt.Printf("synced %-24s (%d sources) -> %s\n", sy["topic"], sy["sources"], sy["path"])
 			}
 			return nil
 		},

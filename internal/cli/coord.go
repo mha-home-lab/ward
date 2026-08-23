@@ -18,6 +18,8 @@ func memoryContextCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "context <query>",
 		Short: "assemble a compact memory context block (no full content) for injection",
+		Example: `  ward memory context "oauth login"
+  ward memory context deploy --project secure-bank --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(fmt.Errorf("context needs a query"))
@@ -64,6 +66,9 @@ func memoryStaleCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "stale",
 		Short: "surface stale/error/unknown artifacts (and rarely-used ones with --days)",
+		Example: `  ward memory stale
+  ward memory stale --days 30
+  ward memory stale --mark art-1a2b --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
@@ -130,6 +135,8 @@ func claimAddCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "add <topic>",
 		Short: "reserve a topic exclusively (one active claim per topic+project)",
+		Example: `  ward memory claim add release-engineering --ttl 60
+  ward memory claim add db-migrations --by atlas --project secure-bank --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(fmt.Errorf("claim add needs a topic"))
@@ -175,6 +182,8 @@ func claimReleaseCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "release <topic>",
 		Short: "release an active claim on a topic",
+		Example: `  ward memory claim release release-engineering
+  ward memory claim release db-migrations --project secure-bank`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(fmt.Errorf("claim release needs a topic"))
@@ -206,6 +215,8 @@ func claimListCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "list",
 		Short: "list active claims",
+		Example: `  ward memory claim list
+  ward memory claim list --project secure-bank --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {

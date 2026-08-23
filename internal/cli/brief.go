@@ -28,6 +28,10 @@ func briefCmd() *cobra.Command {
 			"results live, frees expired claims, then reports verified prior knowledge\n" +
 			"for [topic] (if given), open runs, active claims, and suggested next\n" +
 			"actions. Only verified artifacts are facts; everything else is a miss.",
+		Example: `  ward brief
+  ward brief topic:auth
+  ward brief --compact
+  ward brief topic:auth --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			topic := ""
 			if len(args) > 0 {
@@ -178,7 +182,7 @@ func briefCmd() *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&repo, "repo", "", "repo root for verification")
-	c.Flags().IntVar(&limit, "limit", 5, "max knowledge hits to show")
+	c.Flags().IntVarP(&limit, "limit", "n", 5, "max knowledge hits to show")
 	c.Flags().BoolVar(&compact, "compact", false, "token-budgeted output: trimmed summaries, no health block")
 	return c
 }

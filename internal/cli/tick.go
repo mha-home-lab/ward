@@ -58,6 +58,9 @@ func tickCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "tick",
 		Short: "maintenance sweep: re-verify local artifacts, report drift (--heal supersedes drift)",
+		Example: `  ward tick
+  ward tick --heal
+  ward tick --heal --repo ../other-repo --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {

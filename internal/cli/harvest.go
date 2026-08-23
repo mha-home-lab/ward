@@ -17,6 +17,8 @@ func harvestCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "harvest",
 		Short: "R&D report: tier distribution, cheap-hit rate, bounce leaders, dossier themes, drift",
+		Example: `  ward harvest
+  ward harvest --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {

@@ -213,7 +213,12 @@ func (s *Store) TakeTask(id, by string) (Task, error) {
 
 // FailTask releases a claimed task back into the pool with its admission floor
 // bumped one tier (cross-process escalation). Past strong there is no higher
-// tier: the task is rejected for a human, never looped.
+// tier: the task is rejected for a human, never looped. claimed_by is kept as
+// the LAST holder: active-claim consumers all filter on status='claimed', so
+// a stale name on an open task cannot close/take anything, but the scorecard
+// needs the attribution to count bounces against the engineer who was held
+// responsible (R6 lesson 3: environment vs agent failures must stay
+// distinguishable — nulling the name erased every bounce).
 func (s *Store) FailTask(id string) (Task, error) {
 	t, err := s.GetTask(id)
 	if err != nil {
@@ -227,8 +232,8 @@ func (s *Store) FailTask(id string) (Task, error) {
 		newStatus = "rejected"
 		floor = "strong"
 	}
-	_, err = s.DB.Exec(`UPDATE tasks SET status=?, tier_floor=?, tier_rank=?, claimed_by=NULL,
-		claimed_at=NULL, escalation=escalation+1, updated_at=? WHERE id=?`,
+	_, err = s.DB.Exec(`UPDATE tasks SET status=?, tier_floor=?, tier_rank=?,
+		escalation=escalation+1, updated_at=? WHERE id=?`,
 		newStatus, floor, newRank, nowISO(), id)
 	if err != nil {
 		return t, err
@@ -308,7 +313,11 @@ type EngineerScore struct {
 	Held     int    `json:"currently_holding"`
 }
 
-// EngineerScorecards groups completion outcomes by claiming agent.
+// EngineerScorecards groups pool outcomes by the (current or last) holding
+// agent. State-based attribution: done credits the finisher, bounced credits
+// whoever last held work that re-entered the pool with escalation, rejected
+// credits the holder at rejection time. claimed_by survives FailTask
+// precisely so this accounting stays possible.
 func (s *Store) EngineerScorecards() ([]EngineerScore, error) {
 	rows, err := s.DB.Query(`SELECT claimed_by, status, escalation FROM tasks WHERE claimed_by IS NOT NULL`)
 	if err != nil {
@@ -334,9 +343,10 @@ func (s *Store) EngineerScorecards() ([]EngineerScore, error) {
 			e.Rejected++
 		case "claimed":
 			e.Held++
-		}
-		if esc > 0 && status != "open" {
-			e.Bounced++
+		case "open":
+			if esc > 0 {
+				e.Bounced++ // their last-held work bounced back to the pool
+			}
 		}
 	}
 	out := make([]EngineerScore, 0, len(m))

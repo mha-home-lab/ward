@@ -1278,3 +1278,59 @@ empty-text with explicit 400 while also accepting k=0 as 400-vs-fleet's
   model; escalate to fleet when scope exceeds one session's context or lanes
   need different capability tiers - and expect coordination overhead to be the
   price of parallelism, paid back only at larger scales.
+
+## v0.8.0 — consolidation release (2026-08-23): release engineering, surface audit, README
+
+Charter session (`.arch/CHARTER.md`): zero new subsystems. Four consecutive
+scope-expansion sessions triggered this mandate; this entry closes it.
+
+### P0 shipped
+- **Makefile**: build (git-derived version via ldflags), test, fmt, vet,
+  install ($GOPATH/bin, BINDIR override), check gate, uninstall/clean.
+  `ward-bin` untracked; .gitignore covers both binaries.
+- **Command-surface audit** (every subcommand): --json valid always with
+  empty=[] never null (fixed capture/wave/task list/memory search/verify
+  --all/handoff/run status/explain/reject/skill-sync/router); -n parity on
+  every --limit; Example lines on ALL 36 leaf commands; one-line errors even
+  for cobra-level failures (SilenceErrors + bare os.Exit(1) used to exit
+  silently on bad flags/unknown commands).
+- **CHANGELOG.md** distilled from this tasklog's release history.
+
+### P1 shipped
+- **surface_test.go**: table-driven temp-store tests for the fast-built
+  commands (timeline/wave/fleet/scorecard/skill-sync JSON contract on EMPTY
+  stores) plus behavior tests: wave verify→drift→heal lifecycle, fleet two-
+  store aggregation, scorecard outcome attribution, skill-sync chip push +
+  locator-following FRESH check from a foreign cwd/store, timeline span
+  kinds+ordering, explain/reject JSON shapes incl. node-filter parity in json
+  mode, capture honest counts.
+
+### Bugs the new tests caught immediately (the point of P1)
+1. **workflow.Save did not stamp Path** → `ward task run` persisted empty
+   runs.workflow_path → `capture --run` (R7 fix #2) was unreachable on the
+   task-run path. Save now stamps, matching LoadWorkflow semantics.
+2. **Scorecard bounce/rejected columns were structurally dead**: FailTask
+   nulled claimed_by while EngineerScorecards reads claimed_by; and open+
+   escalation rows were excluded from bounce classification anyway. FailTask
+   now keeps the LAST holder (all active-claim consumers already filter on
+   status='claimed'; CompleteTask and StaleClaims verified safe), and open
+   tasks with escalation>0 classify as bounces. R6 lesson 3 finally holds:
+   environment vs agent failures are distinguishable in outcomes.
+3. **skill-sync --json was a silent dry-run** (human mode synced, json mode
+   only listed). Both modes now do the work; json reports synced chips.
+4. **fleet mutated WARD_HOME globally** without restoring it.
+
+### P1 docs
+README rewritten as product: Quickstart(5) → Concepts(brain/oracle/pool/
+chips) → Reference(command table) → Ops(waves, fleet-launch, estates).
+Deep truth stays in .spec/, history here.
+
+### P2 drafts ONLY (limbo resolved into explicit Draft specs)
+.spec/flake-quarantine.md · .spec/trust-scoped-vouching.md (bee2477e) ·
+.spec/trust-regrading.md (2092335d). Each states purpose/signals/design/
+kept/open questions and names its trigger condition. No code shipped for
+any of them — limbo is debt; drafts are decisions to wait consciously.
+
+### Dogfood evidence
+All fixes proven on live stores before commit; regression waves re-run green
+on mdq/donate-fair/secure-bank at close (see handoff).

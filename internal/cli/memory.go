@@ -16,6 +16,9 @@ func initCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "init",
 		Short: "initialize the ward store (sqlite + schema) and inject the agent protocol",
+		Example: `  ward init
+  ward init --scaffold
+  ward init --scaffold --docs --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
@@ -177,6 +180,9 @@ func memoryPutCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "put",
 		Short: "store a memory artifact (light ceremony auto-accepts; NOT store-local by default)",
+		Example: `  ward memory put --summary "auth uses OIDC PKCE" --kind solution --tags topic:auth
+  ward memory put --summary "deploy steps" --verify-cmd "grep -q deploy README.md" --local
+  ward memory put --summary "hypothesis" --ceremony full --by rd-explorer --tags rd:checks`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
@@ -252,6 +258,8 @@ func memoryGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <id>",
 		Short: "show one artifact by id",
+		Example: `  ward memory get art-1a2b
+  ward memory get art-1a2b --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(errNeedID)
@@ -284,6 +292,8 @@ func memorySupersedeCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "supersede <id>",
 		Short: "mark an artifact superseded (optionally by a successor id)",
+		Example: `  ward memory supersede art-1a2b
+  ward memory supersede art-1a2b --with art-9z8y --reason "wrong after API change"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(errNeedID)
@@ -318,6 +328,9 @@ func memorySearchCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "search <query>",
 		Short: "semantic-ish search with term-drop relaxation",
+		Example: `  ward memory search "oauth login"
+  ward memory search deploy --tag topic:release -n 5
+  ward memory search "flaky tests" --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(errNeedQuery)
@@ -330,6 +343,9 @@ func memorySearchCmd() *cobra.Command {
 			res, err := s.SearchArtifactsTagged(args[0], kind, project, tag, limit)
 			if err != nil {
 				return failErr(err)
+			}
+			if res == nil {
+				res = []store.Artifact{}
 			}
 			if jsonOut {
 				printJSON(res)
@@ -347,7 +363,7 @@ func memorySearchCmd() *cobra.Command {
 	c.Flags().StringVar(&kind, "kind", "", "filter by kind")
 	c.Flags().StringVar(&tag, "tag", "", "exact tag filter (declarative selector; reliable for small models)")
 	c.Flags().StringVar(&project, "project", "", "filter by project")
-	c.Flags().IntVar(&limit, "limit", 10, "max results")
+	c.Flags().IntVarP(&limit, "limit", "n", 10, "max results")
 	return c
 }
 
@@ -357,6 +373,9 @@ func memoryListCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "list",
 		Short: "list artifacts",
+		Example: `  ward memory list
+  ward memory list -n 50 --status accepted
+  ward memory list --kind solution --project secure-bank --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
@@ -392,6 +411,8 @@ func memoryPromoteCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "promote <id>...",
 		Short: "promote proposed artifacts to accepted",
+		Example: `  ward memory promote art-1a2b
+  ward memory promote art-1a2b art-3c4d --by architect --reason "verdict: promoted"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(errNeedID)
@@ -425,6 +446,8 @@ func memoryHandoffCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "handoff",
 		Short: "produce a structured handoff of incomplete work for the next agent",
+		Example: `  ward memory handoff
+  ward memory handoff --incomplete --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
@@ -448,7 +471,7 @@ func memoryHandoffCmd() *cobra.Command {
 					runViews = append(runViews, rv)
 				}
 			}
-			var items []map[string]any
+			items := []map[string]any{}
 			for _, p := range proposed {
 				items = append(items, map[string]any{
 					"id": p.ID, "summary": p.Summary, "files": p.Tags,
@@ -493,6 +516,10 @@ func verifyCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "verify <id>",
 		Short: "run an artifact's verify_cmd (only for store-local artifacts)",
+		Example: `  ward verify art-1a2b
+  ward verify art-1a2b --repo /path/to/repo
+  ward verify --all
+  ward verify art-1a2b --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
@@ -501,7 +528,7 @@ func verifyCmd() *cobra.Command {
 			defer s.DB.Close()
 			if all {
 				allArt, _ := s.ListArtifacts("", "", "", 1000)
-				var out []map[string]string
+				out := []map[string]string{}
 				for _, a := range allArt {
 					if !a.Local {
 						continue

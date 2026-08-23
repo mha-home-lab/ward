@@ -18,6 +18,9 @@ func explainCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "explain <runID> [node]",
 		Short: "reconstruct why a node routed the way it did (evidence chain, not a verdict)",
+		Example: `  ward explain run-3f2a
+  ward explain run-3f2a implementation
+  ward explain run-3f2a implementation --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(fmt.Errorf("need a run id"))
@@ -44,6 +47,30 @@ func explainCmd() *cobra.Command {
 			if err != nil {
 				return failErr(err)
 			}
+			// Node filter applies in BOTH modes (surface parity): a filtered
+			// --json view shows that node's decisions and events only.
+			if nodeFilter != "" {
+				filtered := decs[:0]
+				for _, d := range decs {
+					if d.Node == nodeFilter {
+						filtered = append(filtered, d)
+					}
+				}
+				decs = filtered
+				nodeEvents := events[:0]
+				for _, e := range events {
+					if e.Node == nodeFilter {
+						nodeEvents = append(nodeEvents, e)
+					}
+				}
+				events = nodeEvents
+			}
+			if decs == nil {
+				decs = []store.RoutingDecision{}
+			}
+			if events == nil {
+				events = []store.RunEvent{}
+			}
 
 			if jsonOut {
 				printJSON(map[string]any{
@@ -54,9 +81,6 @@ func explainCmd() *cobra.Command {
 
 			printLine(fmt.Sprintf("run %s [%s] workflow=%s waiting=%s", r.ID, r.Status, r.WorkflowName, r.WaitingApproval))
 			for _, d := range decs {
-				if nodeFilter != "" && d.Node != nodeFilter {
-					continue
-				}
 				printLine("")
 				printLine(fmt.Sprintf("node %s", d.Node))
 				printLine(fmt.Sprintf("  routed: tier=%s model=%s ceremony=%s at %s", d.Tier, d.Model, d.Ceremony, d.CreatedAt))

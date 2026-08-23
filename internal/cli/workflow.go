@@ -18,6 +18,8 @@ func workflowShowCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "show",
 		Short: "show a workflow's nodes and edges",
+		Example: `  ward workflow show --workflow workflows/default.yaml
+  ward workflow show --workflow workflows/parallel-demo.yaml --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wf, err := loadWF(path)
 			if err != nil {
@@ -45,6 +47,8 @@ func workflowValidateCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "validate",
 		Short: "validate a workflow DAG",
+		Example: `  ward workflow validate --workflow workflows/default.yaml
+  ward workflow validate --workflow workflows/parallel-demo.yaml --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, err := loadWF(path)
 			if err != nil {

@@ -27,6 +27,9 @@ func waveCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "wave <topic>",
 		Short: "regression wave: live re-verify all artifacts tagged <topic> (--heal supersedes drift)",
+		Example: `  ward wave topic:auth
+  ward wave topic:auth --heal
+  ward wave topic:auth --repo ../other-repo --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(fmt.Errorf("wave needs a topic tag"))
@@ -50,7 +53,7 @@ func waveCmd() *cobra.Command {
 				Healed   bool   `json:"healed,omitempty"`
 				NoVerify bool   `json:"no_verify_cmd,omitempty"`
 			}
-			var results []result
+			results := make([]result, 0)
 			verified, drifted := 0, 0
 			for _, a := range arts {
 				if a.VerifyCmd == "" {
@@ -106,6 +109,8 @@ func fleetCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "fleet <store-dir>...",
 		Short: "aggregate harvest telemetry across multiple ward stores (read-only)",
+		Example: `  ward fleet ../a/.ward ../b/.ward
+  ward fleet ~/play/*/.ward --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(fmt.Errorf("fleet needs at least one store dir (e.g. ../a/.ward ../b/.ward)"))
@@ -121,6 +126,16 @@ func fleetCmd() *cobra.Command {
 				DriftHealed   int    `json:"drift_healed"`
 			}
 			var rows []row
+			// Each store is opened under its OWN WARD_HOME; the process env is
+			// restored afterwards so this command leaves no global residue.
+			prevHome := os.Getenv("WARD_HOME")
+			defer func() {
+				if prevHome == "" {
+					_ = os.Unsetenv("WARD_HOME")
+				} else {
+					_ = os.Setenv("WARD_HOME", prevHome)
+				}
+			}()
 			for _, dir := range args {
 				home, err := filepath.Abs(dir)
 				if err != nil {

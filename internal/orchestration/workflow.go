@@ -181,7 +181,10 @@ func LoadWorkflow(path string) (*Workflow, error) {
 }
 
 // Save writes the workflow as YAML to path (mkdir -p), then re-validates what
-// was written by loading it back — a saved workflow must be runnable.
+// was written by loading it back — a saved workflow must be runnable. Save
+// also stamps Path so a run started from a saved-but-unsaved-elsewhere
+// workflow persists where it came from (a task-run capture must be able to
+// resolve the file later).
 func (w *Workflow) Save(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -193,6 +196,7 @@ func (w *Workflow) Save(path string) error {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return err
 	}
+	w.Path = path
 	_, err = LoadWorkflow(path)
 	return err
 }

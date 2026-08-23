@@ -62,6 +62,9 @@ func runStartCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "start",
 		Short: "start a workflow run",
+		Example: `  ward run start --auto-approve
+  ward run start --workflow workflows/default.yaml
+  ward run start --workflow workflows/agent-demo.yaml --auto-approve --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			if err != nil {
@@ -96,6 +99,8 @@ func runStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status <runID>",
 		Short: "show run status and node states",
+		Example: `  ward run status run-3f2a
+  ward run status run-3f2a --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(errNeedID)
@@ -110,6 +115,9 @@ func runStatusCmd() *cobra.Command {
 				return failErr(err)
 			}
 			nodes, _ := s.LoadRunNodes(args[0])
+			if nodes == nil {
+				nodes = []store.RunNode{}
+			}
 			if jsonOut {
 				printJSON(map[string]any{"run": r, "nodes": nodes})
 			} else {
@@ -128,6 +136,8 @@ func runApproveCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "approve <runID> <node>",
 		Short: "approve an awaiting_approval node and resume",
+		Example: `  ward run approve run-3f2a review-gate
+  ward run approve run-3f2a review-gate --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) < 2 {
 				return failErr(fmt.Errorf("need <runID> <node>"))
@@ -165,6 +175,8 @@ func runResumeCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "resume <runID>",
 		Short: "resume a paused run",
+		Example: `  ward run resume run-3f2a --auto-approve
+  ward run resume run-3f2a --workflow workflows/task-12.yaml --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(errNeedID)
@@ -201,6 +213,8 @@ func doctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
 		Short: "check store + environment health",
+		Example: `  ward doctor
+  ward doctor --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := store.Open()
 			health := map[string]any{}

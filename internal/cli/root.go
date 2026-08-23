@@ -2,12 +2,23 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"runtime/debug"
 
 	"github.com/spf13/cobra"
 )
+
+// PrintedError marks an error whose message was ALREADY emitted (by failErr,
+// in text or JSON form). main uses it to avoid double-printing; anything else
+// reaching main (flag parse errors, unknown commands — which cobra does NOT
+// print while SilenceErrors is set) must still surface as a one-line error,
+// never a silent exit 1.
+type PrintedError struct{ Err error }
+
+func (p PrintedError) Error() string { return p.Err.Error() }
+func (p PrintedError) Unwrap() error { return p.Err }
 
 // versionString appends the embedded VCS revision when built inside a git
 // repo (go build sets vcs.revision automatically); plain builds report dev.
@@ -62,6 +73,8 @@ func versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "print the ward version",
+		Example: `  ward version
+  ward version --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonOut {
 				printJSON(map[string]string{"version": versionString()})
@@ -91,5 +104,11 @@ func failErr(err error) error {
 	} else {
 		fmt.Fprintln(os.Stderr, "error: "+err.Error())
 	}
-	return err
+	return PrintedError{Err: err}
+}
+
+// IsPrinted reports whether the error was already emitted to the user.
+func IsPrinted(err error) bool {
+	var p PrintedError
+	return errors.As(err, &p)
 }
