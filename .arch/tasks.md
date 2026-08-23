@@ -1143,3 +1143,55 @@ tool-side - vacuous checks pass vacuously, and ward now says so out loud.
 Estate delta from ONE control-group repo: admin-bot store 0/0 -> accepted=6,
 verified=2, handoff clean. Compounding loop confirmed end-to-end by an agent
 we never met.
+
+## R10 — full-workflow verification: init->plan->spec->parallel (mdq greenfield)
+
+The complete drivetrain exercised cold on a new repo, two legs:
+
+Leg 1 (warm, donate-fair): spec-authored-by-engineer (.spec/reconciliation.md,
+5.8KB with justified design decisions) -> impl tasks derived from the actual
+spec text.
+
+Leg 2 (cold, mdq): init on empty repo -> protocol v4 + skeletons -> engineer-
+authored selector contract (155-line EBNF spec) -> three capability lanes
+launched PARALLEL (strong/mid/cheap) -> admission control visibly routed each
+agent to its tier -> session deaths mid-lane -> take-based recovery ->
+fixture-drift root-caused by architect -> CLI wave -> regression waves.
+
+### Verdict per stage
+
+- init: idempotent, protocol v4 injected, skeletons land. CLEAN.
+- plan/spec: engineers write real contracts when the task names required
+  sections + falsifiable check. CLEAN.
+- parallel-by-capability: claim table showed strong->atlas, mid->mid, cheap->
+  chip with zero overlap. CLEAN - this is the nitro evidence.
+- supervision: MESSY. My watch-loop death killed fleet parent shells; takeover
+  prompts caused scope confusion; macOS lacks setsid; one phantom attribution
+  (--by opencode). Fixed operationally: nohup+disown detached launches,
+  surgical takeover prompts forbidding pool interaction.
+
+### New findings
+
+- L10: fleet launches must be detached (nohup+disown); supervisor death must
+  never kill engineers. Now standard practice; candidate for a
+  scripts/fleet-launch helper.
+- L11: takeover prompts are surgical ("make X green, touch nothing else,
+  zero ward commands") - "follow AGENTS.md" to a takeover agent causes pool
+  wandering.
+- L12 (the deep one): TESTS CAN DRIFT FROM THEIR OWN FIXTURES. doc_model_test
+  expected 4 fenced blocks from a fixture containing zero - Go string
+  assembly destroyed the fences mid-a wrote. No implementation could ever
+  pass. Architect caught it by reading fixture-vs-expectations together;
+  three engineer sessions had bounced off it. Lesson for check-authoring:
+  when a check fails identically across attempts, audit THE CHECK before
+  the work.
+
+### Nitro verdict (honest)
+
+Parallel capability lanes delivered: 3 packages green simultaneously where
+sequential solo work would have serialized. But coordination overhead was
+real at this scale: 2 session deaths, 1 fixture drift, multiple takeovers.
+Net: fleets win when lanes are truly independent and specs precise; they LOSE
+when the architect's supervision layer is fragile. Ward made every failure
+recoverable and honest - that part is proven. The boost is real but bounded
+by orchestration quality above it, which is mine.
