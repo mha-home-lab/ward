@@ -94,3 +94,9 @@ verdict, link to the tasks.md entry. No results yet under this consolidated
 protocol; R12/R13 (wikirag solo/fleet) are the historical baseline:
 solo 19.9 min, fleet 44.7 min, functional quality parity, coordination tax
 named.
+
+### H2 launch log
+- 2026-08-23 ~21:00: first attempt GATE-REFUSED. Double smoke test failed;
+  3-minute cooldown re-check across mimo/nemotron/hy3 all failed (same
+  gateway incident as H1). No rig built, no tokens spent on doomed runs.
+  Claim held for next session takeover.

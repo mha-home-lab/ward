@@ -1478,3 +1478,14 @@ orchestration.
 brief · task pool (single-agent structured work) · capture · tick/wave drift
 healing · explain/reject evidence · skill pack/check/sync · claims (cross-
 session exclusivity). Parallelism surface: gone.
+
+## H2 launch attempt — gate REFUSED (2026-08-23, ~21:00 local)
+
+task-798321b1 claimed by ox-alpha; pre-declared double-smoke gate ran before
+any rig setup: smoke1 FAIL, smoke2 FAIL. Cooldown re-check (~3 min) across
+mimo / nemotron / hy3: all FAIL with "Unexpected server error" from new CLI
+sessions — same gateway incident as H1's voided launch, still ongoing.
+Correctly refused: no experiment on a dead environment. Rig not built; zero
+tokens burned on fake data. Next session: verify gate passes twice, then run
+H2 per .spec/simulation.md (rig instructions there). Claim intentionally held
+for takeover via `ward task take task-798321b1 --by <next-agent>`.
