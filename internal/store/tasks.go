@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"sort"
 )
 
 // Task is one claimable unit of work in the dispatch pool. It is the bridge
@@ -294,4 +295,54 @@ type RunEvent struct {
 	Action string
 	Node   string
 	Detail string
+}
+
+// EngineerScore aggregates one agent's dispatch-pool record. Deliberately
+// outcome-based (done/bounced/rejected), not activity-based (rd:c3
+// ada3464d/f6fb1d84): value delivered, not motion.
+type EngineerScore struct {
+	Agent    string `json:"agent"`
+	Done     int    `json:"done"`
+	Bounced  int    `json:"bounced"`  // held a task whose escalation grew past 0
+	Rejected int    `json:"rejected"` // task went rejected while held
+	Held     int    `json:"currently_holding"`
+}
+
+// EngineerScorecards groups completion outcomes by claiming agent.
+func (s *Store) EngineerScorecards() ([]EngineerScore, error) {
+	rows, err := s.DB.Query(`SELECT claimed_by, status, escalation FROM tasks WHERE claimed_by IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	m := map[string]*EngineerScore{}
+	for rows.Next() {
+		var by, status string
+		var esc int
+		if err := rows.Scan(&by, &status, &esc); err != nil {
+			return nil, err
+		}
+		e := m[by]
+		if e == nil {
+			e = &EngineerScore{Agent: by}
+			m[by] = e
+		}
+		switch status {
+		case "done":
+			e.Done++
+		case "rejected":
+			e.Rejected++
+		case "claimed":
+			e.Held++
+		}
+		if esc > 0 && status != "open" {
+			e.Bounced++
+		}
+	}
+	out := make([]EngineerScore, 0, len(m))
+	for _, e := range m {
+		out = append(out, *e)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Done > out[j].Done })
+	return out, nil
 }

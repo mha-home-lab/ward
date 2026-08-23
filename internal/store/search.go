@@ -19,6 +19,10 @@ func (s *Store) SearchArtifacts(q, kind, project string, limit int) ([]Artifact,
 // small models write weak free-text queries; a declarative tag selector is the
 // reliable surface (rd:c1).
 func (s *Store) SearchArtifactsTagged(q, kind, project, tag string, limit int) ([]Artifact, error) {
+	// Tag-only selector: no free-text needed (rd:c1 e01eb16a).
+	if tag != "" && strings.TrimSpace(q) == "" {
+		return s.queryArtifacts("", kind, project, tag, limit, true)
+	}
 	tokens := strings.Fields(q)
 	if len(tokens) == 0 {
 		return nil, nil

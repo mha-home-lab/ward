@@ -1043,3 +1043,55 @@ topic-vouching → cheaper repeat work. Regression waves are now a standing,
 measurable pattern: seed tagged verify-successors, run them, watch drift get
 caught while the tier metric improves.
 
+
+
+## Six-round R&D campaign (2026-08-23): explorers -> verdicts -> features -> dogfood
+
+Ritual per round: 5 explorer lenses -> evaluate every proposal -> implement
+winners through spec-first -> dogfood on real stores -> layered engineer task
+-> scorecard -> tighten gaps.
+
+### Rounds
+
+- **R1 (feedback density):** 8 proposals, 5 promoted / 3 superseded. Shipped
+  `ward timeline` (span view) + `memory search --tag`. Layered task wave4-a:
+  grade A-, diagnosed identical-failure waste via timeline+explain.
+- **R2 (prevention):** 10 proposals converging on 4 clusters (convergence =
+  signal); promoted best-of-cluster (bfd02833 pre-flight, e68a9957 flake
+  vouching hole, a5fee2fa budget briefs), merged 7. Shipped: engine pre-flight
+  broken-check rejection at attempt ONE (signatures learned from real output,
+  incl. go.mod-missing) + `brief --compact`.
+- **R3 (proof-of-working):** 10 proposals; promoted falsifiable-signals model
+  (f6fb1d84) + wave automation (06fad7dc) + fleet view (f9a6b73c) +
+  value-delivered framing (ada3464d). Shipped `ward wave <topic>` and
+  `ward fleet <stores...>`. Layered cross-store task hit an opencode sandbox
+  permission death (wave5-a: zero work, zero escalation burned - pool
+  absorbed environment failure cleanly); nemotron retry also incomplete;
+  architect closed via take+run.
+- **R4 (reflection):** implemented the twice-deferred engineer scorecard -
+  outcome-based (done/bounced/rejected/holding), never activity-based.
+  Revealed operator error of my own: batched verdict shells silently dropped
+  half the R2/R3 supersedes; brief's 'N proposed await review' surfaced it.
+  Repaired idempotently; ledger clean (0 proposed).
+- **R5 (reflection):** chip staleness now surfaces IN brief at session start
+  (caches of the brain must announce their own rot), drill-proven via
+  supersede->brief-warning->restore->repack.
+- **R6 (synthesis):** this entry. Ecosystem deltas across six rounds:
+  commands +6 (timeline, wave, fleet, scorecard, skill pack/check,
+  search --tag), specs +3 domains researched (research/skills/broker §5),
+  28 proposals evaluated with recorded verdicts, 0 unexplained failures,
+  cheap_verified moved 0% -> 4% (df) / held honest denominator growth (sb).
+
+### Reflection conclusions (what six rounds taught)
+
+1. Explorer convergence is the quality signal: clusters of 4-5 independent
+   proposals on the same gap meant the gap was real; singletons were usually
+   speculative.
+2. The gate works but operators drift: verdict batches MUST be verified
+   against the ledger (proposed count == expected parked set), because shell
+   environments eat lines silently.
+3. Environment failures must stay distinguishable from agent failures in any
+   scorecard evolution - wave5-a vs wave3-a would look identical in a naive
+   done-count, but only one actually failed.
+4. Compounding needs repeat work BY DESIGN: regression waves are the vehicle;
+   without them the thesis metric is structurally pinned at floor.

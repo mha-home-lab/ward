@@ -2,6 +2,9 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mha-home-lab/ward/internal/store"
@@ -121,6 +124,14 @@ func briefCmd() *cobra.Command {
 				"accepted": len(accepted), "verified": verified, "proposed": len(proposed),
 			}
 
+			// R5 reflection item: chips are caches of the brain; if their
+			// sources drifted, agents are being taught stale facts. Surface
+			// it at session start where it can actually change behavior.
+			if staleChips := staleChipReport(); len(staleChips) > 0 {
+				b.StaleChips = staleChips
+				b.Next = append([]string{"STALE CHIPS detected: recompile with ward skill pack <topic>"}, b.Next...)
+			}
+
 			b.Next = nextActions(b)
 			if compact {
 				// Budget-aware mode (rd:c2 a5fee2fa): small models choke on
@@ -168,6 +179,7 @@ type brief struct {
 	Claims        []map[string]string `json:"active_claims,omitempty"`
 	OpenTasks     []map[string]string `json:"open_tasks,omitempty"`
 	Health        map[string]int      `json:"health"`
+	StaleChips    []string            `json:"stale_chips,omitempty"`
 	Next          []string            `json:"next"`
 }
 
@@ -274,6 +286,9 @@ func printHumanBrief(b brief) {
 			fmt.Printf("  %s floor=%s %s\n", t["id"], t["tier_floor"], t["title"])
 		}
 	}
+	for _, sc := range b.StaleChips {
+		fmt.Println("STALE CHIP: " + sc)
+	}
 	if len(b.Claims) > 0 {
 		fmt.Println("active claims:")
 		for _, cl := range b.Claims {
@@ -288,4 +303,35 @@ func printHumanBrief(b brief) {
 	for i, n := range b.Next {
 		fmt.Printf("  %d. %s\n", i+1, n)
 	}
+}
+
+// staleChipReport scans .opencode/skills/*/SKILL.md and reports chips whose
+// source artifacts drifted or vanished.
+func staleChipReport() []string {
+	matches, err := filepath.Glob(filepath.Join(".opencode", "skills", "*", "SKILL.md"))
+	if err != nil {
+		return nil
+	}
+	s, err := store.Open()
+	if err != nil {
+		return nil
+	}
+	defer s.DB.Close()
+	var stale []string
+	for _, path := range matches {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		chip := strings.TrimSuffix(filepath.Base(filepath.Dir(path)), "")
+		for _, id := range chipSourceIDs(string(data)) {
+			a, err := s.GetArtifact(id)
+			if err != nil || a.Status == "superseded" || a.VerifyStatus == "stale" || a.VerifyStatus == "error" {
+				stale = append(stale, fmt.Sprintf("%s (source %s drifted)", chip, id))
+				break
+			}
+		}
+	}
+	sort.Strings(stale)
+	return stale
 }
