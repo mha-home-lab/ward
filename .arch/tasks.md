@@ -1023,3 +1023,23 @@ compile → repeat, across donate-fair AND secure-bank simultaneously.
 - Next session: implement L6 through review; then re-measure cheap_verified
   on repeat-work waves — that number finally becomes meaningful.
 
+## L6 shipped + thesis metric alive (2026-08-23, commit 3098a7c)
+
+Implemented through review in the same session: migration v5 (tasks.tags),
+`task add --tags`, propagation task→node→capture, engine topic-intersection
+hit matching with live verification before any vote. Route purity untouched.
+Test: `TestTopicTagsCompoundAcrossTasks` (second same-topic task routes cheap
+on the first's verified capture; also caught the documented created_at tie
+risk in the wild and forced precise assertions).
+
+**Metric movement (the point of it all):**
+- donate-fair: cheap_verified 0 → 2 of 46 decisions (4%) after one tagged
+  regression wave (task 1 miss→mid; tasks 2,3 routed CHEAP on its vouching).
+- secure-bank: 17% → 13% denominator grew honestly (52 decisions) but
+  absolute cheap_verified rose 6 → 7 with two regression runs.
+
+The compounding loop is closed for real: work → capture → live-verify →
+topic-vouching → cheaper repeat work. Regression waves are now a standing,
+measurable pattern: seed tagged verify-successors, run them, watch drift get
+caught while the tier metric improves.
+
