@@ -29,7 +29,7 @@ func skillCmd() *cobra.Command {
 }
 
 func skillPackCmd() *cobra.Command {
-	var out, project string
+	var out, project, tag string
 	var includeUnverified bool
 	c := &cobra.Command{
 		Use:   "pack <topic>",
@@ -45,7 +45,15 @@ func skillPackCmd() *cobra.Command {
 			}
 			defer s.DB.Close()
 
-			srcs, err := skillSources(s, topic, project, includeUnverified)
+			var srcs []store.Artifact
+			if tag != "" {
+				// Exact-tag mode: deterministic compilation surface. FTS fuzz
+				// is fine inside one repo but pollutes GLOBAL chips with
+				// off-topic artifacts (bit live during the first global emit).
+				srcs, err = s.SearchArtifactsTagged("", "", project, tag, 50)
+			} else {
+				srcs, err = skillSources(s, topic, project, includeUnverified)
+			}
 			if err != nil {
 				return failErr(err)
 			}
@@ -77,7 +85,8 @@ func skillPackCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().StringVar(&out, "out", "", "output directory (default .opencode/skills/<chip>)")
+	c.Flags().StringVar(&out, "out", "", "output directory (default .opencode/skills/<chip>; use ~/.config/opencode/skills/<name> for a GLOBAL chip)")
+	c.Flags().StringVar(&tag, "tag", "", "exact-tag compilation (portable knowledge only; recommended for global chips)")
 	c.Flags().StringVar(&project, "project", "", "project lens filter")
 	c.Flags().BoolVar(&includeUnverified, "include-unverified", false, "also compile trusted-class artifacts whose live verify failed or never ran (marked UNVERIFIED in the chip)")
 	return c
