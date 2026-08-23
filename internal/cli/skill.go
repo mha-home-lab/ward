@@ -103,8 +103,27 @@ func skillCheckCmd() *cobra.Command {
 			if len(args) == 0 {
 				return failErr(errNeedID)
 			}
-			path := filepath.Join(args[0], "SKILL.md")
-			data, err := os.ReadFile(path)
+			arg := args[0]
+			var path string
+			var data []byte
+			err := fmt.Errorf("no such chip")
+			candidates := []string{filepath.Join(arg, "SKILL.md")}
+			if !strings.Contains(arg, string(filepath.Separator)) {
+				// Bare chip name: also look in the global skills dir (field
+				// report residual - global chips are cwd-independent by
+				// design; lookup must be too).
+				if home, herr := os.UserHomeDir(); herr == nil {
+					candidates = append(candidates,
+						filepath.Join(home, ".config", "opencode", "skills", arg, "SKILL.md"))
+				}
+			}
+			for _, cand := range candidates {
+				var d []byte
+				if d, err = os.ReadFile(cand); err == nil {
+					data, path = d, cand
+					break
+				}
+			}
 			if err != nil {
 				return failErr(err)
 			}

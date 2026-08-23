@@ -367,6 +367,9 @@ func memoryListCmd() *cobra.Command {
 			if err != nil {
 				return failErr(err)
 			}
+			if res == nil {
+				res = []store.Artifact{}
+			}
 			if jsonOut {
 				printJSON(res)
 			} else {

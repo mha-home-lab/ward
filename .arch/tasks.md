@@ -1128,3 +1128,18 @@ the first global chip.
 Scorecard for the field agent: excellent triage discipline (reproducible,
 graded, praise where earned); bug 1's root cause was authoring-side as much as
 tool-side - vacuous checks pass vacuously, and ward now says so out loud.
+
+## R8 — re-test closure (2026-08-23): field agent confirms fixes on dev-66752f2-dirty
+
+- 1, 2, 8 CONFIRMED FIXED live (honest capture counts both shapes; run-resolved
+  capture errors name the missing input; work spans show verify=passed while
+  start/done stay unknown per router purity).
+- 3 residual CLOSED: bare chip names now resolve against the global skills dir
+  when absent locally; locator still steers the audit to the oracle store.
+- 5 leftover CLOSED: memory list --json emits [] on empty.
+- 7 closed unreproducible by the reporter with a sound hypothesis (silent
+  guard-chain on their side); accepted without instrumentation.
+
+Estate delta from ONE control-group repo: admin-bot store 0/0 -> accepted=6,
+verified=2, handoff clean. Compounding loop confirmed end-to-end by an agent
+we never met.
