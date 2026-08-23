@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | Active |
+| Status | Implemented; adversarially reviewed 2026-08-23 (self-promotion gate now enforced) |
 | Domain | research |
-| Version | 1.0.0 |
+| Version | 1.0.1 |
 
 ## Problem
 
@@ -95,7 +95,7 @@ guidance in `.arch/tasks.md` directly).
 
 | Anti-pattern | Guard |
 |---|---|
-| Explorer promotes itself | light-ceremony auto-accept is forbidden for explorers; `--ceremony full` only |
+| Explorer promotes itself | **Technically enforced (v1.0.1):** `memory put` rejects `--ceremony light` for any `--by rd-explorer*`; proposals cannot self-accept. Previously policy-only — the 2026-08-23 review flagged that a guarantee resting on politeness is not a guarantee. |
 | Noise with no WARD implication | Criterion 1; superseded with reason recorded |
 | Duplication | Boot-step search; supersede-merge |
 | Hype as fact | Criterion 2; primary sources, numbers, references |

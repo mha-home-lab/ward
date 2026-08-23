@@ -140,14 +140,20 @@ type bounceView struct {
 
 func printHumanHarvest(h harvestReport) {
 	fmt.Println("== ward harvest (R&D telemetry) ==")
+	// Fixed-order rendering: ward's CLI contract is deterministic, parseable
+	// output — map iteration would shuffle lines between identical runs.
 	fmt.Println("routing tiers:")
-	for tier, n := range h.Tiers {
-		fmt.Printf("  %-7s %d\n", tier, n)
+	for _, tier := range []string{"cheap", "mid", "strong", "rejected"} {
+		if n := h.Tiers[tier]; n > 0 {
+			fmt.Printf("  %-7s %d\n", tier, n)
+		}
 	}
 	fmt.Println("cheap+verified rate:")
-	for k, v := range h.HitRate {
-		fmt.Printf("  %-20s %v\n", k, v)
-	}
+	fmt.Printf("  %-20s %d decisions\n", "decisions:", h.HitRate["decisions"])
+	fmt.Printf("  %-20s %v\n", "cheap_verified:", h.HitRate["cheap_verified"])
+	fmt.Printf("  %-20s %v\n", "cheap_verified_pct:", h.HitRate["cheap_verified_pct"])
+	fmt.Printf("  %-20s %v\n", "memory_misses:", h.HitRate["memory_misses"])
+	fmt.Printf("  %-20s %v\n", "stale_hits_demoted:", h.HitRate["stale_hits_demoted"])
 	fmt.Println("tasks:")
 	statuses := []string{"open", "claimed", "done", "rejected"}
 	for _, st := range statuses {

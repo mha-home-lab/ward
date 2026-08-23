@@ -265,10 +265,21 @@ func TestTaskTakeRecoversDeadSessionClaim(t *testing.T) {
 		t.Fatalf("take must transfer the claim: %+v", got)
 	}
 
-	// Done/rejected tasks are not takeable.
-	doneCmd := taskDoneCmd()
-	doneCmd.SetArgs([]string{id})
-	if err := doneCmd.Execute(); err != nil {
+	// Done/rejected tasks are not takeable, and only the HOLDER may close.
+	wrongClose := taskDoneCmd()
+	if err := wrongClose.Flags().Set("by", "someone-else"); err != nil {
+		t.Fatal(err)
+	}
+	wrongClose.SetArgs([]string{id})
+	if err := wrongClose.Execute(); err == nil {
+		t.Fatal("closing a task you do not hold must error (attribution guard)")
+	}
+	rightClose := taskDoneCmd()
+	if err := rightClose.Flags().Set("by", "successor"); err != nil {
+		t.Fatal(err)
+	}
+	rightClose.SetArgs([]string{id})
+	if err := rightClose.Execute(); err != nil {
 		t.Fatal(err)
 	}
 	take2 := taskTakeCmd()

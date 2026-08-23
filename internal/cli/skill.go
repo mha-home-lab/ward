@@ -189,10 +189,22 @@ func chipNameFor(topic string) string {
 	return n
 }
 
+// sanitizeFrontmatter strips control characters (notably newlines) so a topic
+// can never break out of the YAML frontmatter block.
+func sanitizeFrontmatter(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
 // renderChip produces SKILL.md: frontmatter (loader-compatible) + compact
 // knowledge body grouped by artifact kind + provenance footer. Every claim
 // carries its source id so audit stays one hop away.
 func renderChip(name, topic string, srcs []store.Artifact) string {
+	topic = sanitizeFrontmatter(topic)
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\nname: %s\ndescription: Ward-compiled chip for %q — verified knowledge from this project's brain. Use when working on %s in this repo.\n---\n\n", name, topic, topic)
 	b.WriteString("# " + name + "\n\n")

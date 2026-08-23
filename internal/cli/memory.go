@@ -179,6 +179,14 @@ func memoryPutCmd() *cobra.Command {
 			if ceremony == "" {
 				ceremony = "light"
 			}
+			// R&D explorer gate (research.md acceptance criterion 1): explorer
+			// provenance may never self-accept via light ceremony — proposals
+			// stay proposed until an architect verdict. Enforced here, not by
+			// politeness, so the loop's guarantee holds against any tooling
+			// that shells this command.
+			if ceremony != "full" && strings.HasPrefix(strings.ToLower(by), "rd-explorer") {
+				return failErr(fmt.Errorf("rd-explorer artifacts require --ceremony full (explorers propose, architects decide)"))
+			}
 			// D0.3 trust boundary: an artifact's verify_cmd is only ever executed
 			// for store-local artifacts. `put` is the agent/human injection path,
 			// so it is guilty by default — its verify_cmd is NOT executed until an

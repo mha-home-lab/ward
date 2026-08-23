@@ -145,8 +145,17 @@ func (s *Store) ClaimNextTask(by, maxTier string) (Task, bool, error) {
 	return Task{}, false, nil
 }
 
-// CompleteTask marks a claimed task done.
+// CompleteTask marks a claimed task done. The completer must be the recorded
+// holder: closing another agent's claim silently would break attribution (the
+// review finding behind this check). Use TakeTask to transfer a claim first.
 func (s *Store) CompleteTask(id, by string) error {
+	t, err := s.GetTask(id)
+	if err != nil {
+		return err
+	}
+	if by != "" && t.ClaimedBy != by {
+		return fmt.Errorf("task %s is claimed by %s, not %s (take it first)", id, t.ClaimedBy, by)
+	}
 	res, err := s.DB.Exec(`UPDATE tasks SET status='done', updated_at=? WHERE id=? AND status='claimed'`,
 		nowISO(), id)
 	if err != nil {

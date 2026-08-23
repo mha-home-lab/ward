@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | Active |
+| Status | Implemented; adversarially reviewed 2026-08-23 |
 | Domain | skills |
-| Version | 1.0.0 |
+| Version | 1.0.1 |
 
 ## Problem
 

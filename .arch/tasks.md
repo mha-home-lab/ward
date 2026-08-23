@@ -876,3 +876,49 @@ harvest finds gap → explorer proposes (proposed) → architect promotes
 (accepted) → skill pack compiles (chip) → agents load it (cheap→sharp) →
 sources drift → check says STALE → fix brain → repack → FRESH.
 
+## Review-only session — adversarial pass over v0.5–v0.7 (2026-08-23)
+
+Triggered by external review feedback: four consecutive scope expansions
+(dispatch pool → protocol-v3 → harvest/explorer → skill compilation) shipped
+without the write-spec-first-review-then-implement cycle; two spec domains
+were declared Active unreviewed. This session ships NO features — only the
+review's findings and their fixes.
+
+### Defects found and fixed same-session
+
+1. **Harvest violated the determinism contract.** Human output iterated Go
+   maps (`Tiers`, `HitRate`) — identical stores produced shuffled lines run to
+   run, against cli.md's "deterministic, parseable" rule. Fixed: fixed-order
+   rendering.
+2. **Explorer self-promotion was policy-only.** research.md guaranteed "no
+   explorer artifact accepted without a verdict", but any process could type
+   `--ceremony light` and auto-accept. Now enforced in `memory put`:
+   `--by rd-explorer*` + light ceremony is a hard error.
+3. **Task close dropped attribution.** `CompleteTask(id, by)` ignored `by` —
+   any process could close any claimed task. Now holder-must-match; cross-
+   closes are rejected with "take it first". Test updated to assert both
+   directions.
+
+### Hardening
+
+4. Chip frontmatter: topics containing control characters can no longer break
+   SKILL.md's YAML header (sanitized on render).
+
+### Accepted risks, now written down instead of implicit
+
+- **TakeTask has no age guard**: an active agent's claim can be stolen by
+  anyone. Acceptable under the single-orchestrator trust domain; revisit with
+  claim TTLs if fleets grow (same trigger as worktree isolation).
+- **Chip topic matching uses FTS search**, not exact tag match — a loosely
+  worded topic can pull tangential artifacts into a chip. Precision improves
+  with tag conventions (`rd:<topic>`); exact-match mode deferred until it
+  bites.
+- **AllRoutingDecisions orders by created_at text**; same-second ties are
+  nondeterministic across queries. Harmless for aggregates; noted for any
+  future per-decision analytics.
+
+### Process correction going forward
+
+Spec domains ship as Draft, go through adversarial review, THEN flip Active.
+Feature pushes pause when a review flags pacing — this entry is the pause.
+
