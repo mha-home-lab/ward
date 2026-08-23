@@ -12,6 +12,13 @@ import (
 // Unverified/stale/unknown artifacts are NOT down-ranked here — the router is
 // responsible for treating them as a miss; search simply surfaces candidates.
 func (s *Store) SearchArtifacts(q, kind, project string, limit int) ([]Artifact, error) {
+	return s.SearchArtifactsTagged(q, kind, project, "", limit)
+}
+
+// SearchArtifactsTagged adds an exact tag filter on top of the FTS/LIKE query:
+// small models write weak free-text queries; a declarative tag selector is the
+// reliable surface (rd:c1).
+func (s *Store) SearchArtifactsTagged(q, kind, project, tag string, limit int) ([]Artifact, error) {
 	tokens := strings.Fields(q)
 	if len(tokens) == 0 {
 		return nil, nil
@@ -38,12 +45,15 @@ func (s *Store) SearchArtifacts(q, kind, project string, limit int) ([]Artifact,
 		}
 		tiers = append(tiers, t)
 	}
+	if tag != "" && len(tokens) == 0 {
+		return s.queryArtifacts("", kind, project, tag, limit, true)
+	}
 	for _, tier := range tiers {
 		if len(tier) == 0 {
 			continue
 		}
 		fts := `"` + strings.Join(tier, `" AND "`) + `"`
-		rows, err := s.queryArtifacts(fts, kind, project, limit, true)
+		rows, err := s.queryArtifacts(fts, kind, project, tag, limit, true)
 		if err != nil {
 			return nil, err
 		}
@@ -52,21 +62,25 @@ func (s *Store) SearchArtifacts(q, kind, project string, limit int) ([]Artifact,
 		}
 	}
 	// Final fallback: LIKE scan.
-	return s.queryArtifacts("%"+strings.Join(tokens, "%")+"%", kind, project, limit, false)
+	return s.queryArtifacts("%"+strings.Join(tokens, "%")+"%", kind, project, tag, limit, false)
 }
 
-func (s *Store) queryArtifacts(match string, kind, project string, limit int, fts bool) ([]Artifact, error) {
+func (s *Store) queryArtifacts(match, kind, project, tag string, limit int, fts bool) ([]Artifact, error) {
 	base := `SELECT id, kind, summary, content, tags, status, created_by, created_at,
 		used_count, superseded_by, superseded_reason, superseded_at, promoted_at, promoted_by,
 		promoted_reason, source_session, source_agent, project, verify_cmd, verify_kind,
 		verify_status, verify_at, ceremony_level, expires_at, local FROM artifacts WHERE status != 'superseded'`
 	args := []any{}
-	if fts {
+	if fts && match != "" {
 		base += " AND rowid IN (SELECT rowid FROM artifacts_fts WHERE artifacts_fts MATCH ?)"
 		args = append(args, match)
-	} else {
+	} else if !fts {
 		base += " AND (summary LIKE ? OR content LIKE ? OR tags LIKE ?)"
 		args = append(args, match, match, match)
+	}
+	if tag != "" {
+		base += ` AND EXISTS (SELECT 1 FROM json_each(artifacts.tags) jt WHERE jt.value = ?)`
+		args = append(args, tag)
 	}
 	if kind != "" {
 		base += " AND kind = ?"

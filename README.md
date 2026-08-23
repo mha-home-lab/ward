@@ -116,6 +116,10 @@ own work product.
 - `ward reject <run>` — show the reject dossier (tier path, attempts, context).
 - `ward harvest` — R&D telemetry: tier distribution, cheap-hit rate, bounce
   leaders, drift, dossier themes (`.spec/research.md`).
+- `ward timeline` — unified activity stream: routing spans with durations,
+  task transitions, captures. The architect's span view.
+- `memory search --tag <tag>` — exact tag selector (declarative retrieval for
+  small models).
 - `ward skill <pack|check>` — compile verified brain knowledge for a topic
   into a loadable `SKILL.md` chip; check reports staleness when sources
   drift (`.spec/skills.md`).

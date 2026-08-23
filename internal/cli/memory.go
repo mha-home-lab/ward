@@ -300,7 +300,7 @@ func memorySupersedeCmd() *cobra.Command {
 }
 
 func memorySearchCmd() *cobra.Command {
-	var kind, project string
+	var kind, project, tag string
 	var limit int
 	c := &cobra.Command{
 		Use:   "search <query>",
@@ -314,7 +314,7 @@ func memorySearchCmd() *cobra.Command {
 				return failErr(err)
 			}
 			defer s.DB.Close()
-			res, err := s.SearchArtifacts(args[0], kind, project, limit)
+			res, err := s.SearchArtifactsTagged(args[0], kind, project, tag, limit)
 			if err != nil {
 				return failErr(err)
 			}
@@ -332,6 +332,7 @@ func memorySearchCmd() *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&kind, "kind", "", "filter by kind")
+	c.Flags().StringVar(&tag, "tag", "", "exact tag filter (declarative selector; reliable for small models)")
 	c.Flags().StringVar(&project, "project", "", "filter by project")
 	c.Flags().IntVar(&limit, "limit", 10, "max results")
 	return c
