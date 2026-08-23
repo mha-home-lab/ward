@@ -50,6 +50,16 @@ silently mixes evidence classes.
   part of the chip, so any claim is one `ward memory get <id>` from its
   evidence.
 
+## The oracle push: `ward skill-sync` (v1.1.0)
+
+Accepted knowledge tagged `portable:<topic>` is GLOBAL by intent: syncCmd
+compiles every such topic into `~/.config/opencode/skills/ward-<topic>/`, so
+agents in ANY project - including repos ward has never touched - load current
+lessons at session start. Convention: repo-specific knowledge stays untagged;
+anything an agent should know everywhere is `portable:<topic>`. Exact-tag
+compilation (`skill pack --tag`) exists because FTS fuzz polluted a global
+chip with off-topic sources on its very first emit.
+
 ## Lifecycle
 
     harvest finds a gap → explorer proposes → architect promotes
