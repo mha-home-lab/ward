@@ -1,2 +1,4 @@
+.ward/
 ward
 ward-bin
+*.test
