@@ -87,8 +87,7 @@ Two honest boundaries, stated plainly:
 | `ward reject <run>` | show the reject dossier for an exhausted run |
 | `ward timeline [-n N]` | unified activity stream: spans, transitions, captures |
 | `ward wave <topic> [--heal]` | regression wave: re-verify everything tagged `<topic>` |
-| `ward fleet <store-dir>...` | aggregate telemetry across stores (read-only) |
-| `ward scorecard` | engineer performance from pool outcomes |
+| `ward scorecard` | engineer outcome history from the pool (done/bounced/rejected) |
 | `ward skill pack \| check`, `ward skill-sync` | compile/audit/push agent skill chips |
 | `ward harvest` | R&D telemetry spine |
 | `ward tick [--heal]`, `ward doctor` | maintenance sweeps, health checks |
@@ -131,25 +130,19 @@ before claiming done.
   state or audit events fail to persist — a completed-looking run always made
   it to disk that way.
 
-### Fleets (parallel engineers)
+### Fleets: deliberately not a feature
 
-Small greenfield + strong solo model? **Work solo** — measured 2.3× faster at
-small scale (R12/R13). Fleets pay when work exceeds one session's context,
-lanes are independent, or capability tiers must mix. Launch through the
-supervisor, never detached polling:
+Ward does not do parallel agent dispatch. It was built, measured, and retired:
+the controlled A/B (R12/R13 in `.arch/tasks.md`) showed coordination overhead
+dominates at every scale tested (solo 19.9 min vs fleet 44.7 min, quality
+parity), and the operational cost of supervising parallel CLI agents outweighs
+the routing value. Mature agent CLIs own that problem. Ward's value is the
+solo loop above — verified memory, honest accounting, drift detection — plus
+regression waves to keep knowledge true over time.
 
-```bash
-scripts/fleet-launch REPO_DIR SPEC_FILE
-# SPEC lines:  <lane-name>|<model>|<prompt-file>
-# verdict table + REPO/.fleet/<lane>.exit markers; blocks on all children
-```
-
-Takeover prompts stay surgical: one job, zero pool commands.
-
-### Multi-project estates
+### Knowledge that travels between projects
 
 ```bash
-ward fleet ~/play/a/.ward ~/play/b/.ward    # one row per store
 ward skill-sync                             # push portable chips globally
 ```
 

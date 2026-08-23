@@ -18,11 +18,10 @@ sessions.
 1. **Pre-declare the falsifier.** Before running, write down the numeric
    condition under which the hypothesis FAILS. Publish the result either way
    (R12 precedent: solo beat fleet 2.3× and was recorded).
-2. **Two arms minimum**, identical task sets:
-   - **independent**: N agents, same tasks, no shared pool (ward present but
-     unused — protocol-correct empty-pool behavior);
-   - **coordinated**: same N agents through ward's pool only (claims, tiers,
-     capture). Takeover prompts are surgical: one job, zero pool commands.
+2. **Two arms minimum**, identical task sets: a treatment arm exercising the
+   ward capability under test, and a control arm without it (e.g. pool-
+   coordinated vs pool-absent; continuity-enabled vs fresh-context). Control
+   agents are told plainly that no tooling exists — never sabotaged silently.
 3. **Metrics recorded per arm** (the standing battery):
    - wall-clock to DoD-green;
    - duplicate-work rate: same file+intent touched by >1 agent;
@@ -54,6 +53,39 @@ sessions.
   section BEFORE launch.
 - `task-4da3d810` (mid): Runner-seam promote-or-keep decision AFTER the
   heterogeneous experiment (`.spec/runner-seam.md`).
+
+## Experiment H1 — heterogeneous tiers on mdq (VOIDED — superseded by product decision)
+
+Pre-declared falsifier and rig were built (2026-08-23); launch failed on an
+opencode gateway incident (all free models returning server errors from new
+CLI sessions while a pre-existing interactive session kept streaming) —
+environment failure, cleanly distinguished per protocol. Before any retry,
+Mohamed made the strategic call this experiment was meant to inform:
+**parallel agent dispatch is retired as a product direction** (operator
+experience: supervision mess; R12/R13: coordination tax with quality parity;
+mature agent CLIs own orchestration). H1 will not be run. Rig dismantled;
+`scripts/fleet-launch` archived to `attic/`; `ward fleet` command removed.
+The falsifier framework below survives into H2.
+
+## Experiment H2 — solo continuity: does ward's memory make the NEXT session faster? (PRE-DECLARED, queued)
+
+The remaining usefulness question, now that parallelism is out: **does the
+verified-memory loop (brief → work → capture → handoff) measurably reduce
+re-discovery cost across sequential sessions on the same repo?**
+
+- Design: mdq clone, 3 sequential small tasks given to fresh sessions (fresh
+  context each) of one worker (single opencode model, mid tier). Arm A: ward
+  initialized, protocol injected, tasks closed via pool with captures; each
+  session starts with `ward brief`. Arm B: no ward, identical task texts,
+  fresh context per task.
+- Metrics: wall-clock per task and total; pass rate on acceptance checks;
+  duplicate-discovery proxy — count of exploratory commands before first
+  edit (from session logs), compared across arms.
+- **Falsifier**: hypothesis "ward's continuity speeds up sequential work"
+  FAILS if total wall-clock A ≥ B, or if A's pass rate is lower. Ties within
+  ±10% count as fails (the tool must pay for its ceremony).
+- Environment gate before launch: `opencode run` smoke test must pass twice
+  consecutively (H1 lesson: gateway incidents masquerade as harness bugs).
 
 ## Results log
 

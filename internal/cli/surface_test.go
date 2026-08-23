@@ -214,60 +214,6 @@ func TestWaveVerifiesCatchesDriftAndHeals(t *testing.T) {
 	}
 }
 
-// fleet aggregates multiple stores read-only; each row reflects its own store.
-func TestFleetAggregatesMultipleStores(t *testing.T) {
-	rootA, rootB := t.TempDir(), t.TempDir()
-
-	seed := func(root string, closeTask bool) {
-		t.Setenv("WARD_HOME", filepath.Join(root, ".ward"))
-		dir := t.TempDir()
-		t.Chdir(dir)
-		putLocalFact(t, dir, "fact "+filepath.Base(root), filepath.Base(root), "topic:"+filepath.Base(root))
-		execCmd(taskAddCmd(), t, []string{"work in " + filepath.Base(root)}, map[string]string{"run": "true"})
-		nx := taskNextCmd()
-		execCmd(nx, t, nil, map[string]string{"by": "agent-x", "max-tier": "strong"})
-		if !closeTask {
-			return
-		}
-		s, _ := store.Open()
-		claimed, _ := s.ListTasks("claimed", 10)
-		if len(claimed) == 0 {
-			t.Fatal("seed expected a claim")
-		}
-		if err := s.CompleteTask(claimed[0].ID, "agent-x"); err != nil {
-			t.Fatal(err)
-		}
-		s.DB.Close()
-	}
-	seed(rootA, true)
-	seed(rootB, false)
-	os.Unsetenv("WARD_HOME")
-
-	out := jsonRun(t, fleetCmd(), []string{filepath.Join(rootA, ".ward"), filepath.Join(rootB, ".ward")})
-	var rows []map[string]any
-	if err := json.Unmarshal([]byte(out), &rows); err != nil {
-		t.Fatalf("fleet --json must be an array of rows: %v\n%s", err, out)
-	}
-	if len(rows) != 2 {
-		t.Fatalf("expected one row per store, got %d:\n%s", len(rows), out)
-	}
-	byStore := map[string]map[string]any{}
-	for _, r := range rows {
-		byStore[r["store"].(string)] = r
-	}
-	a, okA := byStore[filepath.Base(rootA)]
-	b, okB := byStore[filepath.Base(rootB)]
-	if !okA || !okB {
-		t.Fatalf("both stores must appear: %s", out)
-	}
-	if a["tasks_done"].(float64) != 1 || b["tasks_done"].(float64) != 0 {
-		t.Fatalf("per-store task accounting wrong: %s", out)
-	}
-	if a["accepted_knowledge"].(float64) != 1 {
-		t.Fatalf("store A knowledge count wrong: %s", out)
-	}
-}
-
 // scorecard attributes outcomes (done vs bounced) from pool history alone.
 func TestScorecardOutcomeAttribution(t *testing.T) {
 	newSurfaceStore(t)

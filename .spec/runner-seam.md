@@ -2,9 +2,15 @@
 
 | | |
 |---|---|
-| Status | **Draft** — deferred design, deliberately unbuilt |
+| Status | **Draft** — deferred design, deliberately unbuilt; trigger deprioritized 2026-08-23 when parallel dispatch was retired as a product direction |
 | Domain | adapter / execution |
 | Origin | openai.md public review (#7): "the adapter is currently an opencode orchestrator with an abstract router on top" |
+
+## Remaining reason to exist
+With fleets retired, the seam's value narrows to one question: if Mohamed ever
+wants ward to drive a DIFFERENT single worker (codex, claude CLI) instead of
+opencode, this is the design. Until that want is expressed, nothing here gets
+built.
 
 ## Purpose
 Ward routes provider-independently (cheap/mid/strong) but executes every

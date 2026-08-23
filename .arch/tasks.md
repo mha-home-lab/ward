@@ -1438,3 +1438,43 @@ results log appended per experiment. The two seeded pool tasks are its queue.
 - No stray wikirag stacks; port 8092 free; running docker containers belong
   to unrelated projects (left untouched). /tmp throwaway clones removed.
 - public_agent_feedback committed in 87e4197 (review provenance preserved).
+
+## Pivot: parallelism retired as a product direction (2026-08-23, Mohamed's call)
+
+Trigger chain: H1 experiment rig built and pre-declared (.spec/simulation.md),
+launch attempted → ALL six lanes failed fast on an opencode gateway incident
+(every free model returning "Unexpected server error" from new CLI sessions
+while a pre-existing interactive session kept streaming — environment failure,
+correctly attributed per the void rule). Before any retry, Mohamed decided:
+give up on parallelism completely — too messy; claude-code/codex-class CLIs own
+orchestration.
+
+### Why this is the data-aligned call, not surrender
+- R12 falsifier fired (solo 19.9min vs fleet 44.7min); R13 quality parity.
+- H1's rig itself demonstrated the thesis: sharing one store across lanes
+  needed symlinks + six supervisor instances — coordination overhead paid
+  before any work started.
+- Ward's proven value was never dispatch: it is verify-gated routing,
+  honest accounting, drift detection, continuity memory. All solo properties.
+
+### Shipped in the pivot
+- `scripts/fleet-launch` archived to `attic/fleet-launch.deprecated`.
+- `ward fleet` command removed (root registration + implementation +
+  aggregation test). Read-only estate views are reconstructible from git
+  history / harvest if ever missed.
+- README repositioned: fleets documented as deliberately-not-a-feature with
+  the receipts; solo loop is the product; knowledge-travel (skill-sync) kept.
+- `.spec/simulation.md`: H1 recorded VOIDED with full diagnosis trail;
+  H2 PRE-DECLARED — solo continuity experiment (does verified memory make the
+  NEXT session faster?) with pre-declared falsifier including the ±10% tie
+  clause: the tool must pay for its ceremony. Launch gate: two consecutive
+  successful gateway smoke tests (H1 lesson).
+- `.spec/runner-seam.md`: trigger deprioritized — only relevant if ward ever
+  drives a non-opencode single worker.
+- Pool: H1/H2-old tasks dropped by human decision (recorded); H2 seeded as
+  task-798321b1 (mid).
+
+### What survives untouched (solo-critical)
+brief · task pool (single-agent structured work) · capture · tick/wave drift
+healing · explain/reject evidence · skill pack/check/sync · claims (cross-
+session exclusivity). Parallelism surface: gone.
