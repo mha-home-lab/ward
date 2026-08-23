@@ -1251,3 +1251,30 @@ the multi-session consistency machinery wasn't even needed yet.
   specialist tiers matter, or the worker is weaker than the strongest tier.
 - Next experiments should probe THAT boundary (bigger scope, weaker solo model,
   longer horizon), not re-run this shape.
+
+## R13 — A/B quality battery: speed was measured, now quality (2026-08-23)
+
+Identical 10-point runtime battery against both wikirag arms (healthz, distinct
+POSTs, ranking, empty-text, 60-sentence chunking w/ maxlen audit via direct pg
+query, SQLi probe, k-bounds, CLI ingest/search/ask). Strict sequential isolation:
+down -v before AND after each stack (host port 8092 shared - earlier probe runs
+were contaminated cross-arm by this; voided and redone).
+
+### Result: FUNCTIONAL QUALITY PARITY
+
+All 10 checks pass on both arms. Only deltas are stylistic: solo rejects
+empty-text with explicit 400 while also accepting k=0 as 400-vs-fleet's
+200-empty-list; chunk maxlen 502 vs 505 (both <=512).
+
+### Combined A/B verdict for the fresh-agent approach
+
+- SPEED: solo 19.9 min beats fleet 44.7 min (~2.3x) on small greenfield+precise
+  spec+strong model. Falsifier fired as pre-declared.
+- QUALITY: parity. Dispatching does not degrade delivered work when lanes have
+  precise contracts and disjoint scopes.
+- HONESTY: fleet arm surfaced every failure visibly (unclosed lane, env death);
+  solo arm needed no recovery. Ward's accounting held in both topologies.
+- GUIDANCE for main agents: default SOLO for small greenfield with a strong
+  model; escalate to fleet when scope exceeds one session's context or lanes
+  need different capability tiers - and expect coordination overhead to be the
+  price of parallelism, paid back only at larger scales.
