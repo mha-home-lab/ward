@@ -116,6 +116,9 @@ own work product.
 - `ward reject <run>` — show the reject dossier (tier path, attempts, context).
 - `ward harvest` — R&D telemetry: tier distribution, cheap-hit rate, bounce
   leaders, drift, dossier themes (`.spec/research.md`).
+- `ward skill <pack|check>` — compile verified brain knowledge for a topic
+  into a loadable `SKILL.md` chip; check reports staleness when sources
+  drift (`.spec/skills.md`).
 - `ward tick [--heal]` — re-verify local artifacts live; `--heal` supersedes
   drift instead of only reporting it. Frees expired claims either way.
 - `ward doctor` — store + environment health (including `legacy_claims`).

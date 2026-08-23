@@ -843,3 +843,36 @@ most nodes run once; captures verified only help repeat work) — bounce leader
 was the blocked webhook task. donate-fair: 0% cheap (single-run nodes),
 bounce-free after wave-1 adjudication.
 
+## v0.7 — brain-to-chip: `ward skill` compiles knowledge into agent skills (2026-08-23)
+
+The loop's missing last mile. Chef's rd-001 stopped at evaluated knowledge in
+the store; agents don't read stores — they load skill files. Ward now compiles
+gated knowledge into pluggable chips (inspired by codex-spec-master-skills'
+SKILL.md format, but DERIVED, not hand-written). Spec: `.spec/skills.md`.
+
+### Shipped
+
+- **`ward skill pack <topic>`** — compiles accepted artifacts (tag/search
+  match) into `.opencode/skills/<ward-chip>/SKILL.md`: loader-compatible
+  frontmatter, body grouped by kind (Procedures / Field notes / Watch out /
+  Background), sources table as in-chip audit trail.
+- **`ward skill check <chip-dir>`** — staleness detector: re-reads every
+  source id against live store state; superseded/stale/error sources ⇒ STALE.
+- **Gate travels with the chip**: captures need live verification;
+  verdict-knowledge needs promotion. `--include-unverified` relaxes with an
+  explicit `[UNVERIFIED]` marker — evidence classes never mix silently.
+- Test: `TestSkillPackGateAndStaleness` (gate holds; staleness flips).
+
+### Proven on donate-fair's real brain
+
+`rd:checks` chip compiled from the promoted invariant checklist; drift drill
+(supersede → check=STALE naming the source) then successor artifact promoted
+→ repack → FRESH. Chips are caches of the brain: hand-editing them is
+pointless by construction.
+
+### Full loop now closed
+
+harvest finds gap → explorer proposes (proposed) → architect promotes
+(accepted) → skill pack compiles (chip) → agents load it (cheap→sharp) →
+sources drift → check says STALE → fix brain → repack → FRESH.
+

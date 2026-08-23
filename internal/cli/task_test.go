@@ -281,6 +281,70 @@ func TestTaskTakeRecoversDeadSessionClaim(t *testing.T) {
 	}
 }
 
+func TestSkillPackGateAndStaleness(t *testing.T) {
+	t.Setenv("WARD_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+
+	// Verdict-knowledge (no verify_cmd): accepted via promotion.
+	put := memoryPutCmd()
+	for n, v := range map[string]string{
+		"summary": "invariant checklist", "kind": "discovery", "tags": "rd:checks",
+		"content": "conservation, floor, totality", "ceremony": "full",
+	} {
+		if err := put.Flags().Set(n, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put.SetArgs(nil)
+	if err := put.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := store.Open()
+	proposed, _ := s.ListArtifacts("proposed", "", "", 5)
+	if len(proposed) != 1 {
+		t.Fatalf("full ceremony must stay proposed, got %d", len(proposed))
+	}
+	if _, err := s.Promote([]string{proposed[0].ID}, "accept", "architect"); err != nil {
+		t.Fatal(err)
+	}
+	s.DB.Close()
+
+	out := filepath.Join(t.TempDir(), "chip")
+	pack := skillPackCmd()
+	if err := pack.Flags().Set("out", out); err != nil {
+		t.Fatal(err)
+	}
+	pack.SetArgs([]string{"rd:checks"})
+	if err := pack.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(out, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "invariant checklist") || !strings.Contains(string(body), proposed[0].ID) {
+		t.Fatal("chip must contain knowledge and cite its source id")
+	}
+
+	check := skillCheckCmd()
+	check.SetArgs([]string{out})
+	if err := check.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Retire the source: chip must flip STALE with the source named.
+	s2, _ := store.Open()
+	if err := s2.Supersede(proposed[0].ID, "", "drift drill"); err != nil {
+		t.Fatal(err)
+	}
+	s2.DB.Close()
+	check2 := skillCheckCmd()
+	check2.SetArgs([]string{out})
+	if err := check2.Execute(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHarvestReportsTelemetry(t *testing.T) {
 	t.Setenv("WARD_HOME", t.TempDir())
 	t.Chdir(t.TempDir())

@@ -27,7 +27,7 @@ func NewRoot() *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.PersistentFlags().BoolVar(&jsonOut, "json", false, "emit JSON instead of human text")
-	root.AddCommand(briefCmd(), initCmd(), memoryCmd(), verifyCmd(), routeCmd(), routerCmd(), runCmd(), captureCmd(), taskCmd(), explainCmd(), rejectCmd(), doctorCmd(), workflowCmd(), tickCmd(), harvestCmd(), versionCmd())
+	root.AddCommand(briefCmd(), initCmd(), memoryCmd(), verifyCmd(), routeCmd(), routerCmd(), runCmd(), captureCmd(), taskCmd(), explainCmd(), rejectCmd(), doctorCmd(), workflowCmd(), tickCmd(), harvestCmd(), skillCmd(), versionCmd())
 	return root
 }
 
