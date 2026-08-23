@@ -286,6 +286,11 @@ func contextIDsOf(ctxJSON string) []string {
 // node. The thesis: an artifact may not vote for cheap until it matches current
 // repo state. So before trusting, we run verification.Run LIVE against the repo
 // and persist the result. Only status=="verified" counts as a real hit.
+//
+// Matching is by node-id tag (exact task) OR topic-tag intersection (rd:
+// compounding) — a later task sharing a topic tag inherits verified knowledge
+// from an earlier one. Route purity is untouched: this is engine-side signal
+// gathering, and only LIVE-VERIFIED artifacts may ever vote.
 func (e *Engine) memoryHitForNode(node Node) (bool, string, []string) {
 	cands := map[string]store.Artifact{}
 	for _, q := range []string{node.ID, node.Kind} {
@@ -296,15 +301,25 @@ func (e *Engine) memoryHitForNode(node Node) (bool, string, []string) {
 			}
 		}
 	}
-	// Only artifacts explicitly tagged with this exact node id count. The loose
-	// "any accepted artifact of the same kind" fallback caused false hits.
+	// Eligibility: exact node-id tag, or any shared topic tag.
+	eligible := func(a store.Artifact) bool {
+		if hasTag(a.Tags, node.ID) {
+			return true
+		}
+		for _, t := range node.Tags {
+			if t != "" && hasTag(a.Tags, t) {
+				return true
+			}
+		}
+		return false
+	}
 	bestStatus := ""
 	var verifiedIDs []string
 	for _, a := range cands {
 		if a.Status != "accepted" {
 			continue
 		}
-		if !hasTag(a.Tags, node.ID) {
+		if !eligible(a) {
 			continue
 		}
 		// LIVE gate: verify against the repo right now, then persist.

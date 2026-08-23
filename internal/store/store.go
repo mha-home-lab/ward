@@ -112,7 +112,13 @@ func (s *Store) migrate() error {
 	)`); err != nil {
 		return err
 	}
-	_, err := s.DB.Exec("PRAGMA user_version = 4")
+	// v4 -> v5 (broker.md §4, rd:compounding): task topic tags propagate to
+	// node tags and then to captured artifacts, so verified knowledge can
+	// vouch across tasks sharing a topic instead of dying with its task id.
+	if err := s.addColumn("tasks", "tags", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
+		return err
+	}
+	_, err := s.DB.Exec("PRAGMA user_version = 5")
 	return err
 }
 

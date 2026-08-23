@@ -29,6 +29,10 @@ type Node struct {
 	// set, the router never selects below it (see routing.go). Empty = pure
 	// inference (v0.3.0 behavior).
 	Tier string `yaml:"tier"`
+	// Tags propagate onto captured artifacts alongside the node id, enabling
+	// TOPIC-VOUCHING: a later task sharing a topic tag inherits verified
+	// knowledge from an earlier one (rd:compounding).
+	Tags []string `yaml:"tags"`
 }
 
 type Edge struct {
@@ -204,12 +208,12 @@ func (w *Workflow) Save(path string) error {
 // false cheap routes across unrelated work (found live during dogfooding:
 // a healthz capture vouched for a mandate-idempotency node whose acceptance
 // check then passed without the feature existing).
-func TaskWorkflow(taskID, title, kind, run, verifyCmd string) *Workflow {
+func TaskWorkflow(taskID, title, kind, run, verifyCmd string, tags []string) *Workflow {
 	if kind == "" || kind == "channel" {
 		kind = "default"
 	}
 	nodeID := "work-" + strings.TrimPrefix(taskID, "task-")
-	work := Node{ID: nodeID, Kind: kind}
+	work := Node{ID: nodeID, Kind: kind, Tags: tags}
 	if run != "" {
 		work.Run = run
 	} else if verifyCmd != "" && kind == "test" {

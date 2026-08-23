@@ -154,6 +154,11 @@ work; agents pull, and the atomic pull guarantees one owner.
   own task with justification — an engineer opportunistically added a package
   mid-task and the gate never saw it.
 - One concept per task; strong-floor tasks name their test in the title.
+- **Topic tags compound verified knowledge (v0.8, rd:compounding).** Seed
+  related work with `--tags topic:<name>`: tags propagate task → node →
+  captured artifact, so a later task sharing the topic routes cheap on its
+  predecessor's LIVE-VERIFIED capture. Verified-only voting; Route purity
+  untouched (engine-side hit matching).
 - Blocked work belongs in the pool: it generates honest escalation data and
   terminates in a dossier instead of fake success. Drop it when the human
   decides.

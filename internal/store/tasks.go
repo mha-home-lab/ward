@@ -21,6 +21,7 @@ type Task struct {
 	WorkflowPath string
 	VerifyCmd    string
 	Run          string
+	Tags         []string
 	Escalation   int
 	CreatedAt    string
 	UpdatedAt    string
@@ -34,9 +35,9 @@ func (s *Store) CreateTask(t Task) (string, error) {
 	now := nowISO()
 	rank := tierRank(t.TierFloor)
 	_, err := s.DB.Exec(`INSERT INTO tasks
-		(id, title, kind, tier_floor, tier_rank, status, verify_cmd, run, escalation, created_at, updated_at)
-		VALUES (?,?,?,?,?, 'open', ?, ?, 0, ?, ?)`,
-		t.ID, t.Title, t.Kind, t.TierFloor, rank, t.VerifyCmd, t.Run, now, now)
+		(id, title, kind, tier_floor, tier_rank, status, verify_cmd, run, tags, escalation, created_at, updated_at)
+		VALUES (?,?,?,?,?, 'open', ?, ?, ?, 0, ?, ?)`,
+		t.ID, t.Title, t.Kind, t.TierFloor, rank, t.VerifyCmd, t.Run, joinTags(t.Tags), now, now)
 	if err != nil {
 		return "", err
 	}
@@ -46,12 +47,12 @@ func (s *Store) CreateTask(t Task) (string, error) {
 // GetTask loads one task by id.
 func (s *Store) GetTask(id string) (Task, error) {
 	var t Task
-	var cb, ca, wp, vc, rn sql.NullString
+	var cb, ca, wp, vc, rn, tagsRaw sql.NullString
 	err := s.DB.QueryRow(`SELECT id, title, kind, tier_floor, tier_rank, status,
-		claimed_by, claimed_at, workflow_path, verify_cmd, run, escalation, created_at, updated_at
+		claimed_by, claimed_at, workflow_path, verify_cmd, run, tags, escalation, created_at, updated_at
 		FROM tasks WHERE id=?`, id).
 		Scan(&t.ID, &t.Title, &t.Kind, &t.TierFloor, &t.TierRank, &t.Status,
-			&cb, &ca, &wp, &vc, &rn, &t.Escalation, &t.CreatedAt, &t.UpdatedAt)
+			&cb, &ca, &wp, &vc, &rn, &tagsRaw, &t.Escalation, &t.CreatedAt, &t.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return t, fmt.Errorf("no task %s", id)
 	}
@@ -60,13 +61,14 @@ func (s *Store) GetTask(id string) (Task, error) {
 	}
 	t.ClaimedBy, t.ClaimedAt, t.WorkflowPath = nullStr(cb), nullStr(ca), nullStr(wp)
 	t.VerifyCmd, t.Run = nullStr(vc), nullStr(rn)
+	t.Tags = parseTags(nullStr(tagsRaw))
 	return t, nil
 }
 
 // ListTasks returns tasks ordered oldest-first, filtered by status when set.
 func (s *Store) ListTasks(status string, limit int) ([]Task, error) {
 	q := `SELECT id, title, kind, tier_floor, tier_rank, status,
-		claimed_by, claimed_at, workflow_path, verify_cmd, run, escalation, created_at, updated_at
+		claimed_by, claimed_at, workflow_path, verify_cmd, run, tags, escalation, created_at, updated_at
 		FROM tasks`
 	var args []any
 	if status != "" {
@@ -83,13 +85,14 @@ func (s *Store) ListTasks(status string, limit int) ([]Task, error) {
 	var out []Task
 	for rows.Next() {
 		var t Task
-		var cb, ca, wp, vc, rn sql.NullString
+		var cb, ca, wp, vc, rn, tagsRaw sql.NullString
 		if err := rows.Scan(&t.ID, &t.Title, &t.Kind, &t.TierFloor, &t.TierRank, &t.Status,
-			&cb, &ca, &wp, &vc, &rn, &t.Escalation, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			&cb, &ca, &wp, &vc, &rn, &tagsRaw, &t.Escalation, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
 		t.ClaimedBy, t.ClaimedAt, t.WorkflowPath = nullStr(cb), nullStr(ca), nullStr(wp)
 		t.VerifyCmd, t.Run = nullStr(vc), nullStr(rn)
+		t.Tags = parseTags(nullStr(tagsRaw))
 		out = append(out, t)
 	}
 	return out, nil

@@ -90,7 +90,7 @@ func taskTakeCmd() *cobra.Command {
 }
 
 func taskAddCmd() *cobra.Command {
-	var kind, tier, verifyCmd, run string
+	var kind, tier, verifyCmd, run, tags string
 	c := &cobra.Command{
 		Use:   "add <title>",
 		Short: "create a claimable work item (no YAML required)",
@@ -109,13 +109,13 @@ func taskAddCmd() *cobra.Command {
 			}
 			id, err := s.CreateTask(store.Task{
 				Title: title, Kind: kind, TierFloor: tier,
-				VerifyCmd: verifyCmd, Run: run,
+				VerifyCmd: verifyCmd, Run: run, Tags: splitCSV(tags),
 			})
 			if err != nil {
 				return failErr(err)
 			}
 			if jsonOut {
-				printJSON(map[string]string{"id": id, "title": title, "tier_floor": orDefault(tier, "mid")})
+				printJSON(map[string]string{"id": id, "title": title, "tier_floor": orDefault(tier, "mid"), "tags": tags})
 			} else {
 				printLine(fmt.Sprintf("task %s added (%s floor): %s", id, orDefault(tier, "mid"), title))
 			}
@@ -126,6 +126,7 @@ func taskAddCmd() *cobra.Command {
 	c.Flags().StringVar(&tier, "tier", "mid", "minimum capable tier = admission floor (cheap|mid|strong)")
 	c.Flags().StringVar(&verifyCmd, "verify-cmd", "", "verification command for the work")
 	c.Flags().StringVar(&run, "run", "", "command that performs the work")
+	c.Flags().StringVar(&tags, "tags", "", "topic tags (comma-separated) that let verified results compound across tasks sharing them")
 	return c
 }
 
@@ -203,7 +204,7 @@ func taskRunCmd() *cobra.Command {
 			}
 
 			path := "workflows/task-" + strings.TrimPrefix(t.ID, "task-") + ".yaml"
-			wf := orchestration.TaskWorkflow(t.ID, t.Title, t.Kind, t.Run, t.VerifyCmd)
+			wf := orchestration.TaskWorkflow(t.ID, t.Title, t.Kind, t.Run, t.VerifyCmd, t.Tags)
 			if err := wf.Save(path); err != nil {
 				return failErr(err)
 			}
@@ -387,7 +388,7 @@ func taskWorkflowCmd() *cobra.Command {
 			if path == "" {
 				path = "workflows/task-" + strings.TrimPrefix(t.ID, "task-") + ".yaml"
 			}
-			wf := orchestration.TaskWorkflow(t.ID, t.Title, t.Kind, t.Run, t.VerifyCmd)
+			wf := orchestration.TaskWorkflow(t.ID, t.Title, t.Kind, t.Run, t.VerifyCmd, t.Tags)
 			if err := wf.Save(path); err != nil {
 				return failErr(err)
 			}

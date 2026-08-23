@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -386,6 +387,70 @@ func TestHarvestReportsTelemetry(t *testing.T) {
 	h := harvestCmd()
 	if err := h.Execute(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// L6 acceptance: verified knowledge compounds ACROSS tasks sharing a topic tag.
+// Task A (topic:x) completes -> captured+verified. Task B (different id, same
+// topic:x) must route CHEAP on a live-verified memory hit.
+func TestTopicTagsCompoundAcrossTasks(t *testing.T) {
+	t.Setenv("WARD_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+
+	for _, title := range []string{"regression A", "regression B"} {
+		execCmd(taskAddCmd(), t, []string{title}, map[string]string{
+			"tier": "cheap", "kind": "test", "run": "true", "tags": "topic:regression",
+		})
+	}
+
+	var secondID string
+	pullAndRun := func(agent string) {
+		next := taskNextCmd()
+		if err := next.Flags().Set("by", agent); err != nil {
+			t.Fatal(err)
+		}
+		if err := next.Flags().Set("max-tier", "mid"); err != nil {
+			t.Fatal(err)
+		}
+		if err := next.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		s, _ := store.Open()
+		ts, _ := s.ListTasks("claimed", 1)
+		id := ts[0].ID
+		if agent == "eng-2" {
+			secondID = id
+		}
+		s.DB.Close()
+		run := taskRunCmd()
+		run.SetArgs([]string{id})
+		if err := run.Execute(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	pullAndRun("eng-1") // first: miss -> mid; captures verified knowledge tagged topic:regression
+	pullAndRun("eng-2") // second: MUST route cheap via live-verified topic vouching
+
+	s2, _ := store.Open()
+	defer s2.DB.Close()
+	decs, _ := s2.AllRoutingDecisions(10)
+	var last store.RoutingDecision
+	found := false
+	for _, d := range decs {
+		if strings.HasPrefix(d.Node, "work-") && strings.HasSuffix(d.Node, strings.TrimPrefix(secondID, "task-")) {
+			last, found = d, true
+		}
+	}
+	if !found {
+		t.Fatal("no work decision for the second task")
+	}
+	if last.Tier != "cheap" || !last.MemoryHit || last.VerifyStatus != "verified" {
+		t.Fatalf("second same-topic task must route cheap+verified, got %+v", last)
+	}
+	var ctxIDs []string
+	if err := json.Unmarshal([]byte(last.Context), &ctxIDs); err != nil || len(ctxIDs) == 0 {
+		t.Fatalf("cheap decision must cite its evidence ids, got %q", last.Context)
 	}
 }
 

@@ -74,6 +74,12 @@ selection to the router (routing.md) instead of a hard-coded provider.
   local, node-tagged artifact would count as a memory hit for that node's
   future runs, turning a failure transcript into fake knowledge. Covered by
   `TestRejectDossierAndExplain`.
+- **Topic-vouching hit matching (v0.8, rd:compounding).** `Node.Tags` (yaml
+  `tags`) propagate from dispatch tasks through `TaskWorkflow` into captured
+  artifacts. `memoryHitForNode` matches candidates by node-id tag OR topic-tag
+  intersection, then live-verifies before any vote — so knowledge compounds
+  across sibling tasks while only repo-verified facts may vote cheap.
+  `routing.Route` remains pure: this is engine-side signal gathering.
 - **Event log reader.** `Store.LoadEvents(runID)` returns ordered audit events;
   `ward explain <run> [node]` joins decisions + events + live re-read context
   status into one evidence chain (observer only — never feeds routing).

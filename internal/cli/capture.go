@@ -49,11 +49,13 @@ func captureNode(s *store.Store, wf *orchestration.Workflow, node orchestration.
 		}
 	}
 
+	tags := []string{tag}
+	tags = append(tags, node.Tags...)
 	a := store.Artifact{
 		Kind:       kind,
 		Summary:    summary,
 		Content:    content,
-		Tags:       []string{tag},
+		Tags:       tags,
 		Status:     "accepted",
 		CreatedBy:  "ward",
 		VerifyCmd:  verifyCmd,
