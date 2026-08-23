@@ -40,6 +40,8 @@ fix the cause; never bypass the store or the trust boundary.
 <!-- /ward:protocol -->
 ## Repo-specific notes
 
+- Next-session charter: read `.arch/CHARTER.md` before planning.
+
 - `go build ./... && go test ./...` is the verification gate; `gofmt -l .` must
   be empty. Run all three before claiming done.
 - Router purity is load-bearing: `internal/routing.Route` must stay pure (no
