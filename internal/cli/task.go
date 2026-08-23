@@ -217,7 +217,7 @@ func taskRunCmd() *cobra.Command {
 			if err != nil {
 				return failErr(err)
 			}
-			autoCapture(s, wf, runID)
+			nCaptured := autoCapture(s, wf, runID)
 			r, err := s.LoadRun(runID)
 			if err != nil {
 				return failErr(err)
@@ -230,6 +230,7 @@ func taskRunCmd() *cobra.Command {
 					return failErr(err)
 				}
 				out["task_status"] = "done"
+				out["captured"] = fmt.Sprintf("%d", nCaptured)
 			case "rejected":
 				ft, err := s.FailTask(t.ID)
 				if err != nil {
@@ -251,7 +252,11 @@ func taskRunCmd() *cobra.Command {
 				printLine(fmt.Sprintf("task %s: run %s -> %s", t.ID, runID, r.Status))
 				switch out["task_status"] {
 				case "done":
-					printLine("task closed as done; result captured for the next session")
+					if nCaptured > 0 {
+						printLine(fmt.Sprintf("task closed as done; %d result(s) captured for the next session", nCaptured))
+					} else {
+						printLine("task closed as done; NOTHING captured (this task has no runnable check - add --run/--verify-cmd so results can be recorded)")
+					}
 				case "open":
 					printLine("task re-entered pool at floor " + out["tier_floor"])
 					printLine("to continue THIS work: ward task take " + t.ID + " --by <your-name> ; then ward task run " + t.ID)

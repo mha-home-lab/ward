@@ -1095,3 +1095,36 @@ winners through spec-first -> dogfood on real stores -> layered engineer task
    done-count, but only one actually failed.
 4. Compounding needs repeat work BY DESIGN: regression waves are the vehicle;
    without them the thesis metric is structurally pinned at floor.
+
+## R7 — external field report from admin-bot (2026-08-23): 8 findings, fixes shipped
+
+The control-group test worked: a fresh agent ran v4 end-to-end on an untouched
+repo and returned a graded field report. Fixes shipped same-session:
+
+1. HIGH phantom capture: 'result captured' printed even with zero artifacts
+   (tasks without runnable checks skip autoCapture silently). Now: capture
+   count is real; no-check completion says 'NOTHING captured - add
+   --run/--verify-cmd'. Authoring corollary: spec tasks use `test -s <file>`.
+2. HIGH capture --run demanded secret knowledge (--workflow plus a filename
+   the tool never prints). Now resolves the run's persisted workflow_path and
+   names missing paths in errors.
+3. MED skill check store-blind/cwd-bound. Chips now embed their oracle-store
+   locator ('store:' line); check follows it (global chips audit against the
+   store that authored them, not cwd).
+4. MED version=dev uncorrelatable. Now embeds vcs revision+dirty via buildinfo.
+5. LOW empty collections -> [] not null (timeline/brief/scorecard).
+6. LOW scaffold titles rendered literal '.' for project name; fixed via
+   projectDisplayName.
+7. LOW silent exit-0 no-op task run: NOT reproduced - need the agent's exact
+   invocation sequence before touching anything.
+8. INFO routing spans froze at verify=unknown. Decisions are pre-execution by
+   design, but now stamp verify_status='passed' post-success when the node ran
+   its check green - WITHOUT overwriting a legitimate verified vouching hit.
+
+Also fixed en route: L8 (-n parity on memory list), protocol v4 SPEC-FIRST,
+skill-sync oracle push, skill pack --tag exact mode after FTS fuzz polluted
+the first global chip.
+
+Scorecard for the field agent: excellent triage discipline (reproducible,
+graded, praise where earned); bug 1's root cause was authoring-side as much as
+tool-side - vacuous checks pass vacuously, and ward now says so out loud.

@@ -148,7 +148,7 @@ func briefCmd() *cobra.Command {
 						b.OpenTasks[i]["title"] = string(r[:60]) + "..."
 					}
 				}
-				b.Health = nil
+				b.Health = map[string]int{}
 			}
 
 			if jsonOut {

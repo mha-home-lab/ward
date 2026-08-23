@@ -221,6 +221,14 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 	})
 	done[nodeID] = true
 	_ = e.Store.AddEvent(runID, "done", nodeID, obs)
+	// Stamp the check outcome onto the routing span (field report bug 8): the
+	// decision is recorded pre-execution, but leaving verify=unknown forever
+	// starves harvest/scorecard of real pass data when the check ran green.
+	if node.Run != "" {
+		_, _ = e.Store.DB.Exec(`UPDATE routing_decisions SET verify_status='passed'
+			WHERE verify_status != 'verified' AND id=(SELECT id FROM routing_decisions
+			WHERE run_id=? AND node=? ORDER BY created_at DESC, id DESC LIMIT 1)`, runID, nodeID)
+	}
 	return false, nil
 }
 

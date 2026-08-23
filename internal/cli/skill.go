@@ -70,7 +70,7 @@ func skillPackCmd() *cobra.Command {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return failErr(err)
 			}
-			body := renderChip(chipName, topic, srcs)
+			body := renderChip(chipName, topic, s.Home, srcs)
 			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 				return failErr(err)
 			}
@@ -108,11 +108,21 @@ func skillCheckCmd() *cobra.Command {
 			if err != nil {
 				return failErr(err)
 			}
+			// Follow the chip's store locator if present: a GLOBAL chip is
+			// compiled from one oracle store; checking it against whatever
+			// cwd's store is store-blind (field report bug 3).
+			prevHome := os.Getenv("WARD_HOME")
+			locator := chipStoreLocator(string(data))
+			if locator != "" {
+				os.Setenv("WARD_HOME", locator)
+			}
 			s, err := store.Open()
 			if err != nil {
+				if locator != "" {
+					os.Setenv("WARD_HOME", prevHome)
+				}
 				return failErr(err)
 			}
-			defer s.DB.Close()
 
 			stale, missing := 0, 0
 			var lines []string
@@ -127,6 +137,10 @@ func skillCheckCmd() *cobra.Command {
 					stale++
 					lines = append(lines, fmt.Sprintf("  DRIFTED %s (%s, verify=%s)", a.ID, a.Status, a.VerifyStatus))
 				}
+			}
+			s.DB.Close()
+			if locator != "" {
+				os.Setenv("WARD_HOME", prevHome)
 			}
 			res := map[string]any{"chip": path, "sources_drifted": stale, "sources_missing": missing,
 				"verdict": map[bool]string{true: "FRESH", false: "STALE — rerun: ward skill pack"}[stale == 0 && missing == 0]}
@@ -211,8 +225,11 @@ func sanitizeFrontmatter(s string) string {
 
 // renderChip produces SKILL.md: frontmatter (loader-compatible) + compact
 // knowledge body grouped by artifact kind + provenance footer. Every claim
-// carries its source id so audit stays one hop away.
-func renderChip(name, topic string, srcs []store.Artifact) string {
+// carries its source id so audit stays one hop away, and the footer names the
+// STORE the sources live in - global chips are compiled from one oracle store,
+// and 'ward skill check' must follow that locator instead of whatever cwd
+// happens to be (field report bug 3).
+func renderChip(name, topic, homeStore string, srcs []store.Artifact) string {
 	topic = sanitizeFrontmatter(topic)
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\nname: %s\ndescription: Ward-compiled chip for %q — verified knowledge from this project's brain. Use when working on %s in this repo.\n---\n\n", name, topic, topic)
@@ -251,6 +268,9 @@ func renderChip(name, topic string, srcs []store.Artifact) string {
 	}
 
 	b.WriteString("---\n\n## Sources (audit trail)\n\n")
+	if homeStore != "" {
+		b.WriteString("store: " + homeStore + "\n\n")
+	}
 	b.WriteString("| id | kind | gate | verify_at |\n|---|---|---|---|\n")
 	for _, a := range srcs {
 		va := a.VerifyAt
@@ -290,4 +310,17 @@ func chipSourceIDs(body string) []string {
 		}
 	}
 	return ids
+}
+
+// chipStoreLocator extracts the oracle-store path from a rendered chip.
+func chipStoreLocator(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "store: ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "store: "))
+		}
+		if strings.HasPrefix(line, "| id |") {
+			break
+		}
+	}
+	return ""
 }

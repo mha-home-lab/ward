@@ -4,9 +4,33 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/spf13/cobra"
 )
+
+// versionString appends the embedded VCS revision when built inside a git
+// repo (go build sets vcs.revision automatically); plain builds report dev.
+func versionString() string {
+	v := Version
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		var rev, mod string
+		for _, kv := range bi.Settings {
+			switch kv.Key {
+			case "vcs.revision":
+				rev = kv.Value
+			case "vcs.modified":
+				if kv.Value == "true" {
+					mod = "-dirty"
+				}
+			}
+		}
+		if len(rev) > 7 {
+			v = Version + "-" + rev[:7] + mod
+		}
+	}
+	return v
+}
 
 var jsonOut bool
 
@@ -40,9 +64,9 @@ func versionCmd() *cobra.Command {
 		Short: "print the ward version",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonOut {
-				printJSON(map[string]string{"version": Version})
+				printJSON(map[string]string{"version": versionString()})
 			} else {
-				printLine("ward version " + Version)
+				printLine("ward version " + versionString())
 			}
 			return nil
 		},

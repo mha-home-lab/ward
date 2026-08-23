@@ -34,7 +34,7 @@ func timelineCmd() *cobra.Command {
 				Duration string
 				sortKey  string
 			}
-			var out []span
+			out := make([]span, 0, limit)
 
 			decs, err := s.AllRoutingDecisions(limit)
 			if err != nil {

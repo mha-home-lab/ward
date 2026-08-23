@@ -104,8 +104,21 @@ func scaffoldWorkflow(dir string) error {
 
 // scaffoldDocs writes WARD's spec convention into the current project (gated
 // behind --docs). Idempotent: existing files are left untouched.
+// projectDisplayName resolves a sane project name for scaffolding; Base(".")
+// would render a literal dot into titles (field report bug 6).
+func projectDisplayName(dir string) string {
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	name := filepath.Base(dir)
+	if name == "." || name == string(filepath.Separator) || name == "" {
+		return "project"
+	}
+	return name
+}
+
 func scaffoldDocs(dir string) error {
-	blueprint := `# blueprint — ` + filepath.Base(dir) + ` design blueprint
+	blueprint := `# blueprint — ` + projectDisplayName(dir) + ` design blueprint
 
 | | |
 |---|---|
@@ -129,7 +142,7 @@ The delta under consideration and the reasoning.
 ## Open questions
 Anything unresolved or deliberately deferred.
 `
-	tasks := `# tasks — ` + filepath.Base(dir) + ` tasklog
+	tasks := `# tasks — ` + projectDisplayName(dir) + ` tasklog
 
 | | |
 |---|---|

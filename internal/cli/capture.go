@@ -128,24 +128,30 @@ func inferVerify(node orchestration.Node, summary, contentOverride string) (stri
 }
 
 // autoCapture records every done node in a run that carried a `run:` command.
-// Called after a run/resume advance from the CLI so the engine stays untouched.
-func autoCapture(s *store.Store, wf *orchestration.Workflow, runID string) {
+// Returns the number of artifacts actually written - callers MUST report this
+// honestly: claiming "captured" when nothing was recorded is a phantom
+// success (field report from admin-bot, bug 1).
+func autoCapture(s *store.Store, wf *orchestration.Workflow, runID string) int {
 	nodes, err := s.LoadRunNodes(runID)
 	if err != nil {
-		return
+		return 0
 	}
 	status := map[string]string{}
 	for _, n := range nodes {
 		status[n.Node] = n.Status
 	}
+	captured := 0
 	for _, node := range wf.Nodes {
 		if node.Run == "" || status[node.ID] != "done" {
 			continue
 		}
 		if _, err := captureNode(s, wf, node, "", "", "", "", ""); err != nil {
-			printLine(fmt.Sprintf("capture skip %s: %v", node.ID, err))
+			fmt.Printf("capture skip %s: %v\n", node.ID, err)
+			continue
 		}
+		captured++
 	}
+	return captured
 }
 
 func captureCmd() *cobra.Command {
@@ -170,13 +176,16 @@ func captureCmd() *cobra.Command {
 				if path == "" {
 					path = r.WorkflowPath
 				}
+				if path == "" {
+					return failErr(fmt.Errorf("run %s has no persisted workflow path; supply --workflow", runID))
+				}
 				wf, err = orchestration.LoadWorkflow(path)
 				if err != nil {
-					return failErr(err)
+					return failErr(fmt.Errorf("open %s: %w", path, err))
 				}
 			} else if nodeID != "" {
 				if wfPath == "" {
-					return failErr(fmt.Errorf("need --workflow to capture a node directly"))
+					return failErr(fmt.Errorf("capture --node needs --workflow (no run context to resolve it from)"))
 				}
 				wf, err = orchestration.LoadWorkflow(wfPath)
 				if err != nil {

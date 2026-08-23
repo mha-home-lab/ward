@@ -52,7 +52,7 @@ func syncCmd() *cobra.Command {
 				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 					return failErr(err)
 				}
-				if err := os.WriteFile(path, []byte(renderChip(name, t, srcs)), 0o644); err != nil {
+				if err := os.WriteFile(path, []byte(renderChip(name, t, s.Home, srcs)), 0o644); err != nil {
 					return failErr(err)
 				}
 				fmt.Printf("synced %-24s (%d sources) -> %s\n", t, len(srcs), path)
