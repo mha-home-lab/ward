@@ -204,21 +204,31 @@ func TestEngineRunFailureEscalates(t *testing.T) {
 		t.Fatalf("run must be rejected after run: fails, got %s", r.Status)
 	}
 	decs, _ := eng.Store.RoutingDecisionsForRun(runID)
-	// Three routing decisions (cheap, mid, strong) for "work", escalating.
+	// Identical-failure short-circuit: a deterministic run: command that fails
+	// the same way twice is rejected after TWO attempts (cheap->mid), not
+	// three — climbing tiers cannot change byte-identical work (rd:c1
+	// f0b662e1). Tiers must still strictly escalate across the two attempts.
 	var workDecs []store.RoutingDecision
 	for _, d := range decs {
 		if d.Node == "work" {
 			workDecs = append(workDecs, d)
 		}
 	}
-	if len(workDecs) < 3 {
-		t.Fatalf("expected 3 escalating attempts for work, got %d", len(workDecs))
+	if len(workDecs) != 2 {
+		t.Fatalf("identical-failure short-circuit expects exactly 2 attempts, got %d", len(workDecs))
 	}
-	tiers := []string{workDecs[0].Tier, workDecs[1].Tier, workDecs[2].Tier}
-	for i := 1; i < len(tiers); i++ {
-		if tierRank[tiers[i]] <= tierRank[tiers[i-1]] {
-			t.Fatalf("tiers must strictly escalate, got %v", tiers)
+	if tierRank[workDecs[1].Tier] <= tierRank[workDecs[0].Tier] {
+		t.Fatalf("attempt 2 must outrank attempt 1, got %v", workDecs)
+	}
+	events, _ := eng.Store.LoadEvents(runID)
+	sawShortCircuit := false
+	for _, e := range events {
+		if e.Action == "reject" && strings.Contains(e.Detail, "identical failure repeated") {
+			sawShortCircuit = true
 		}
+	}
+	if !sawShortCircuit {
+		t.Fatal("expected an identical-failure short-circuit reject event")
 	}
 	// The (re-)attempt context must be the verified fact only — never the
 	// failed first attempt's prose.

@@ -20,6 +20,12 @@ type Engine struct {
 	Store       *store.Store
 	RepoRoot    string
 	AutoApprove bool
+
+	// lastFail tracks each node's most recent failure detail within one Run
+	// pass, powering the identical-failure short-circuit (rd:c1 f0b662e1):
+	// a deterministic run: command that failed identically gains nothing from
+	// a tier climb, so we stop honestly instead of burning the budget.
+	lastFail map[string]string
 }
 
 // StartWorkflow creates a run and runs it until an approval pause or completion.
@@ -56,6 +62,7 @@ func (e *Engine) Run(runID string, wf *Workflow) error {
 	if err != nil {
 		return err
 	}
+	e.lastFail = map[string]string{}
 	for {
 		next := ""
 		for _, id := range order {
@@ -177,6 +184,17 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 		}
 		_ = e.Store.AddEvent(runID, "exec", nodeID, detail)
 		if rerr != nil {
+			// Identical-failure short-circuit: no model in the loop means the
+			// retry is byte-identical work; a tier climb cannot change it.
+			if node.Prompt == "" && e.lastFail[nodeID] == detail && esc > 0 {
+				_ = e.Store.AddEvent(runID, "reject", nodeID,
+					"identical failure repeated without progress (no model in loop): "+detail)
+				_ = e.Store.UpsertRunNode(store.RunNode{RunID: runID, Node: nodeID, Status: "failed", Escalation: esc, UpdatedAt: store.NowISO()})
+				_ = e.Store.SaveRun(store.RunState{ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO()})
+				e.WriteDossier(runID, nodeID)
+				return true, nil
+			}
+			e.lastFail[nodeID] = detail
 			return e.failNode(runID, wf, nodeID, esc, escal, "run failed")
 		}
 	}
