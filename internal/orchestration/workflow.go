@@ -214,9 +214,16 @@ func TaskWorkflow(taskID, title, kind, run, verifyCmd string, tags []string) *Wo
 	}
 	nodeID := "work-" + strings.TrimPrefix(taskID, "task-")
 	work := Node{ID: nodeID, Kind: kind, Tags: tags}
-	if run != "" {
+	// Gate ALWAYS travels (admin-bot field finding): VerifyCmd is the
+	// acceptance contract and must execute on every completion path - for
+	// interactive/manual work it is the ONLY gate, so an AND-chain binds work
+	// and proof into one node and one honest pass/fail.
+	switch {
+	case run != "" && verifyCmd != "":
+		work.Run = "( " + run + " ) && ( " + verifyCmd + " )"
+	case run != "":
 		work.Run = run
-	} else if verifyCmd != "" && kind == "test" {
+	case verifyCmd != "":
 		work.Run = verifyCmd
 	}
 	w := &Workflow{
