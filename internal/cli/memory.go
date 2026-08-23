@@ -367,7 +367,7 @@ func memoryListCmd() *cobra.Command {
 	c.Flags().StringVar(&status, "status", "", "proposed|accepted|superseded")
 	c.Flags().StringVar(&kind, "kind", "", "filter by kind")
 	c.Flags().StringVar(&project, "project", "", "filter by project")
-	c.Flags().IntVar(&limit, "limit", 20, "max results")
+	c.Flags().IntVarP(&limit, "limit", "n", 20, "max results")
 	return c
 }
 

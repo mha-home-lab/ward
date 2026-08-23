@@ -201,3 +201,25 @@ func (s *Store) StaleArtifacts(days, limit int) ([]Artifact, error) {
 	}
 	return out, nil
 }
+
+// PortableTopics returns distinct portable:<topic> tags across accepted
+// artifacts - the oracle's table of contents for global skill sync
+// (rd:portable convention).
+func (s *Store) PortableTopics() ([]string, error) {
+	rows, err := s.DB.Query(`SELECT DISTINCT jt.value FROM artifacts a,
+		json_each(a.tags) jt WHERE jt.value LIKE 'portable:%' AND a.status='accepted'
+		ORDER BY jt.value`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, nil
+}
