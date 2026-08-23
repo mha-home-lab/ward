@@ -141,6 +141,23 @@ The v0.5 slice closes what §"non-goals" deferred. Store-native, no service:
 Guardrail held: advisory-of-work, exclusive-of-topic. The pool never assigns
 work; agents pull, and the atomic pull guarantees one owner.
 
+### 5. Task authoring rules (earned by dogfooding)
+
+- **The acceptance check IS the specification.** It must be impossible to
+  satisfy without the deliverable — prefer "a named test passes" over grepping
+  identifiers that may pre-exist (the mandate-idempotency false close).
+- **Implement-first ordering is stated, not assumed**: the `task next` output
+  says "implement FIRST, then prove" because two independent engineers ran
+  checks before work existed and burned their escalation budget on trivially
+  failing gates.
+- **No new dependencies inside engineer tasks.** Dependency changes are their
+  own task with justification — an engineer opportunistically added a package
+  mid-task and the gate never saw it.
+- One concept per task; strong-floor tasks name their test in the title.
+- Blocked work belongs in the pool: it generates honest escalation data and
+  terminates in a dossier instead of fake success. Drop it when the human
+  decides.
+
 ## Output contract
 
 - `artifacts.claim_topic` + `uni_claim_topic` index: the atomicity invariant.

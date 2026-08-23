@@ -80,7 +80,7 @@ func taskTakeCmd() *cobra.Command {
 				printJSON(t)
 			} else {
 				printTask(t)
-				printLine("execute it: ward task run " + t.ID)
+				printLine("implement the title FIRST, then prove it: ward task run " + t.ID)
 			}
 			return nil
 		},
@@ -159,7 +159,10 @@ func taskNextCmd() *cobra.Command {
 				printJSON(t)
 			} else {
 				printTask(t)
-				printLine("execute it: ward task run " + t.ID)
+				// Implement-first ordering stated explicitly: engineers that
+				// ran the check before the work existed burned their whole
+				// escalation budget on trivially-failing gates.
+				printLine("implement the title FIRST, then prove it: ward task run " + t.ID)
 			}
 			return nil
 		},

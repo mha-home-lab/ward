@@ -59,6 +59,13 @@ Ported from chef `rd-001`, extended with WARD's internal feed.
 
    Leaving a proposal `proposed` is reserved for calls that genuinely belong
    to the human.
+7. **Compilable lessons (v1.1.0).** A rejection reason is a verdict, not
+   knowledge — it lives where chips cannot reach it. When a rejection (or any
+   verdict) carries a transferable lesson, the architect ALSO records it as a
+   `feedback` artifact (`put --ceremony full --by architect --tags rd:<topic>`),
+   so `skill pack` compiles it into the chip's "Watch out" section. Rule of
+   thumb: if you would want a future engineer to know this BEFORE repeating
+   the mistake, it must be an artifact, not prose in a supersede reason.
 
 ## Evaluation criteria (promote)
 
