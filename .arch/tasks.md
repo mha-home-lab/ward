@@ -1489,3 +1489,30 @@ Correctly refused: no experiment on a dead environment. Rig not built; zero
 tokens burned on fake data. Next session: verify gate passes twice, then run
 H2 per .spec/simulation.md (rig instructions there). Claim intentionally held
 for takeover via `ward task take task-798321b1 --by <next-agent>`.
+
+## Field report #2 (muse-spark on beat-exporter) — friction fixed, protocol v5, self-priming pools (2026-08-23)
+
+Second external control-group agent ran ward cold (beat-exporter modernization,
+10/10 pool drained, race-clean). Verdict: structure + auto-capture prevented
+phantom claims; ~15% ceremony overhead. Its friction list drove this session:
+
+1. **run vs verify_cmd semantics unclear** → `task add` now WARNS at authoring
+   time on missing or placeholder (`true`) gates (stderr; --json stays
+   parseable) and flag help states run AND-gates completion.
+   Test: TestTaskAddWarnsOnWeakGate.
+2. **Protocol v4→v5**: THE RUN IS THE GATE clause + go test -race guidance
+   injected into the managed protocol block, so every warded repo teaches this
+   to every future agent. Propagated live: ward + beat-exporter AGENTS.md
+   refreshed via init (dogfooded the version-detection refresh path).
+3. **README**: verification-kinds section now carries gate-semantics + -race.
+4. **Self-priming pools** (answering "I shouldn't need to write prompts"):
+   beat-exporter's deferred candidates seeded as 4 gated tasks from its own
+   field report; ward's pool gained a cheap PRIMER task pointing fresh agents
+   at specs + H2 takeover. A new session's first `ward brief` is now the prompt.
+
+Also closed en route: muse-spark's entire 18-file modernization was sitting
+UNCOMMITTED in beat-exporter — verified (build/vet/race green) then committed
+with attribution; its tracked .ward store untracked+ignored.
+
+Remaining DX items accepted deliberately: tier mapping is manual (admission
+control is the feature, not a bug); workflow YAML generation stays plumbing.

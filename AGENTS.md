@@ -1,6 +1,6 @@
 # AGENTS.md
 
-<!-- ward:protocol v4 -->
+<!-- ward:protocol v5 -->
 ## WARD — verified project memory (managed block; do not edit between markers)
 
 This project is ward-managed. Follow this protocol exactly; it exists so you
@@ -31,7 +31,12 @@ never re-solve solved problems and never trust stale claims.
 
        ward task run <task-id>
 
-   then repeat until the pool is empty or every remaining task is beyond your
+   THE RUN IS THE GATE: a task's --run/--verify-cmd is its acceptance check
+   and must exercise the real change end-to-end (field lesson: a placeholder
+   run like 'true' closes the task while proving nothing - that is a phantom
+   success, the exact failure ward exists to prevent). For concurrent Go
+   work make the check 'go test ./... -race'; default tests hide data races.
+   Then repeat until the pool is empty or every remaining task is beyond your
    ability or blocked. On failure the task re-enters the pool one tier higher —
    do not retry it yourself; pull different work or stop. To resume a task a
    dead session left claimed: ward task take <id> --by <your-name>.

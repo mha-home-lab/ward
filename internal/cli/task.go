@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/mha-home-lab/ward/internal/orchestration"
@@ -114,6 +115,17 @@ func taskAddCmd() *cobra.Command {
 			if tier != "" && tier != "cheap" && tier != "mid" && tier != "strong" {
 				return failErr(fmt.Errorf("invalid --tier %q (cheap|mid|strong)", tier))
 			}
+			// Field-report guard (muse-spark DX report): agents new to ward
+			// used placeholder runs (`true`) that never exercised real code,
+			// so tasks closed as done while proving nothing. Warn loudly at
+			// authoring time; stderr keeps --json output parseable.
+			warn := func(msg string) { fmt.Fprintln(os.Stderr, "warning: "+msg) }
+			switch {
+			case run == "" && verifyCmd == "":
+				warn("task has NO acceptance check: pass --run/--verify-cmd exercising the real change, or completion proves nothing (phantom success)")
+			case strings.TrimSpace(run) == "true", strings.TrimSpace(verifyCmd) == "true":
+				warn("placeholder check 'true' closes this task while proving nothing: make the gate exercise the real change")
+			}
 			id, err := s.CreateTask(store.Task{
 				Title: title, Kind: kind, TierFloor: tier,
 				VerifyCmd: verifyCmd, Run: run, Tags: splitCSV(tags),
@@ -131,8 +143,8 @@ func taskAddCmd() *cobra.Command {
 	}
 	c.Flags().StringVar(&kind, "kind", "default", "node kind (default|test|approval)")
 	c.Flags().StringVar(&tier, "tier", "mid", "minimum capable tier = admission floor (cheap|mid|strong)")
-	c.Flags().StringVar(&verifyCmd, "verify-cmd", "", "verification command for the work")
-	c.Flags().StringVar(&run, "run", "", "command that performs the work")
+	c.Flags().StringVar(&verifyCmd, "verify-cmd", "", "extra verification command, AND-chained into the acceptance gate")
+	c.Flags().StringVar(&run, "run", "", "command that performs the work AND gates completion (the acceptance check - make it exercise the real change)")
 	c.Flags().StringVar(&tags, "tags", "", "topic tags (comma-separated) that let verified results compound across tasks sharing them")
 	return c
 }

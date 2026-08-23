@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -605,5 +606,38 @@ func TestTopicCompoundingSurvivesSummaryWording(t *testing.T) {
 	if last.Tier != "cheap" || !last.MemoryHit || last.VerifyStatus != "verified" {
 		t.Fatalf("compounding must work via tags alone regardless of summary wording, got %+v reason=%q",
 			last, last.Reason)
+	}
+}
+
+// Field-report regression (muse-spark DX): agents authored placeholder gates
+// ("true") or no check at all, so tasks closed as done while proving nothing.
+// task add must warn loudly at authoring time (stderr, keeping --json clean).
+func TestTaskAddWarnsOnWeakGate(t *testing.T) {
+	t.Setenv("WARD_HOME", t.TempDir())
+
+	capture := func(args []string) string {
+		old := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
+		c := taskAddCmd()
+		c.SetArgs(args)
+		execErr := c.Execute()
+		w.Close()
+		os.Stderr = old
+		out, _ := io.ReadAll(r)
+		if execErr != nil {
+			t.Fatalf("task add %v failed: %v", args, execErr)
+		}
+		return string(out)
+	}
+
+	if s := capture([]string{"no gate", "--tier", "cheap"}); !strings.Contains(s, "NO acceptance check") {
+		t.Fatalf("missing-check task must warn: %q", s)
+	}
+	if s := capture([]string{"placeholder gate", "--tier", "cheap", "--run", "true"}); !strings.Contains(s, "placeholder check") {
+		t.Fatalf("'true' run must warn: %q", s)
+	}
+	if s := capture([]string{"real gate", "--tier", "cheap", "--run", "go build ./..."}); strings.Contains(s, "warning") {
+		t.Fatalf("honest gate must not warn: %q", s)
 	}
 }

@@ -102,6 +102,13 @@ and documents itself via `--help` examples.
 `golden expected-file::command` (diffs output against a checked-in file).
 All kinds execute only for store-local artifacts.
 
+**The gate is the whole proof.** A task's `--run`/`--verify-cmd` closes the
+task only when it passes — so it must exercise the real change end-to-end.
+A placeholder like `true` closes tasks while proving nothing (phantom
+success); `ward task add` warns about missing or placeholder gates at
+authoring time. For concurrent Go work, make the check
+`go test ./... -race`: plain `go test ./...` hides data races.
+
 ## Ops
 
 ### Regression waves
