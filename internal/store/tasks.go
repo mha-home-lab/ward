@@ -158,6 +158,24 @@ func (s *Store) CompleteTask(id, by string) error {
 	return nil
 }
 
+// DropTask rejects a task by human decision (blocked/obsolete/out of scope)
+// from any active state, so it stops appearing in brief and the pool.
+func (s *Store) DropTask(id string) (Task, error) {
+	res, err := s.DB.Exec(`UPDATE tasks SET status='rejected', claimed_by=NULL, claimed_at=NULL, updated_at=?
+		WHERE id=? AND status IN ('open','claimed')`, nowISO(), id)
+	if err != nil {
+		return Task{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		t, err := s.GetTask(id)
+		if err != nil {
+			return Task{}, err
+		}
+		return t, fmt.Errorf("task %s is %s (only open/claimed tasks can be dropped)", id, t.Status)
+	}
+	return s.GetTask(id)
+}
+
 // TakeTask transfers (or acquires) a task's claim: a dead session's claimed
 // work must be recoverable, or one crash wedges the item forever. Explicit
 // attribution replaces the previous holder; the escalation count survives so

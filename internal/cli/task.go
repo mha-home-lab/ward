@@ -16,9 +16,40 @@ import (
 // capture, close. Failure bumps the floor so the item re-enters the pool for a
 // more capable agent; past strong it is rejected for a human, never looped.
 func taskCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "task", Short: "claimable work items: add/next/run/take/list/done/fail/workflow"}
-	cmd.AddCommand(taskAddCmd(), taskNextCmd(), taskRunCmd(), taskTakeCmd(), taskListCmd(), taskDoneCmd(), taskFailCmd(), taskWorkflowCmd())
+	cmd := &cobra.Command{Use: "task", Short: "claimable work items: add/next/run/take/drop/list/done/fail/workflow"}
+	cmd.AddCommand(taskAddCmd(), taskNextCmd(), taskRunCmd(), taskTakeCmd(), taskDropCmd(), taskListCmd(), taskDoneCmd(), taskFailCmd(), taskWorkflowCmd())
 	return cmd
+}
+
+// taskDropCmd is the human's kill switch for blocked work: without it, a
+// blocked task haunts every future brief and every session burns time
+// re-failing it. Dropping is a decision, recorded in the pool.
+func taskDropCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "drop <id>",
+		Short: "reject a task by human decision (blocked, obsolete, or out of scope)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return failErr(errNeedID)
+			}
+			s, err := store.Open()
+			if err != nil {
+				return failErr(err)
+			}
+			defer s.DB.Close()
+			t, err := s.DropTask(args[0])
+			if err != nil {
+				return failErr(err)
+			}
+			if jsonOut {
+				printJSON(t)
+			} else {
+				printLine("dropped " + t.ID + " (rejected; will not appear in brief again)")
+			}
+			return nil
+		},
+	}
+	return c
 }
 
 // taskTakeCmd recovers work from a dead session: a claimed task whose agent

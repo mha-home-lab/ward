@@ -758,3 +758,54 @@ secure-bank HEAD carries four ward-pooled commits. Pool: one open task
 (webhook, floor mid, blocked) awaiting a human decision or receiver URL.
 Ward fixes committed alongside this entry.
 
+## v0.5.z — parallel fleet on donate-fair: the architect pattern works (2026-08-23)
+
+The intended usage finally exercised as designed: ARCHITECT decomposes and
+budgets, THREE small-model engineers work the pool SIMULTANEOUSLY, ward is the
+control plane.
+
+### How it ran
+
+- Architect seeded three tasks with tier floors + deliberately DISJOINT file
+  scopes (backend/app+tests vs frontend vs new test file) — scope separation is
+  decomposition discipline, the architect's job.
+- Three `opencode run` processes launched in parallel with ONE-LINE prompts
+  ("read AGENTS.md and follow it"); budgets cheap/mid/mid. No step choreography.
+- Atomic claims decided who got what; two mid engineers landed real work:
+  `/stats` endpoint + test (engineer-a), DLQ failure-injection test
+  (engineer-b). 17 tests green at close.
+
+### Findings (4th–6th)
+
+4. **Honest bounce under partial work.** scout-a (cheap) implemented half the
+   frontend task, its check refused closure, and per protocol it released
+   instead of retrying — exactly right. But escalation semantics conflate "too
+   hard" with "unfinished": the bump to strong was meaningless because the
+   remaining delta was one line. Escalation is a re-budgeting signal, not a
+   difficulty measurement; the architect adjudicates.
+5. **Architect-authored check bug (#2 redux).** `grep '#legs'` demanded a
+   literal hash; HTML writes `id="legs"`. Two agents were bounced by a WRONG
+   check. Fixed by dropping and re-seeding with a correct falsifiable check;
+   closed via take+run. Rule reinforced: the architect must dry-run their own
+   checks before seeding.
+6. **Baseline before launch.** donate-fair's tree arrived with an entire
+   uncommitted pivot; repo-wide observed-file logs then blurred agent
+   attribution (shared working tree — worktree isolation would fix attribution
+   AND concurrency, revisit wish 03 when fleets grow).
+
+### Ward changes shipped in this entry
+
+- Protocol block v3: pool work is now an explicit LOOP ("work until nothing is
+  left within your budget"), plus `task take` recovery guidance — enables true
+  one-line session handoff.
+- `ward task drop <id>`: human kill switch for blocked/obsolete work so it
+  stops haunting every future brief (the webhook task haunted secure-bank's
+  pool until dropped).
+- Tests: TestTaskTakeRecoversDeadSessionClaim; suite green.
+
+### Control-plane data (donate-fair/.ward)
+
+Concurrent store access from three processes without a single SQLITE_BUSY
+failure (WAL + busy_timeout held); atomic claim contention resolved correctly;
+captures verified on next brief; pool drained to empty within budgets.
+

@@ -18,7 +18,7 @@ const (
 	// can advance (v1 -> v2 ...) and older files are still detected and
 	// refreshed in place instead of accumulating duplicate blocks.
 	docStartPrefix = "<!-- ward:protocol"
-	docStart       = docStartPrefix + " v2 -->"
+	docStart       = docStartPrefix + " v3 -->"
 	docEnd         = "<!-- /ward:protocol -->"
 )
 
@@ -44,13 +44,20 @@ never re-solve solved problems and never trust stale claims.
    cheap tier ONLY when live-verified against repo state; unverified, stale, or
    imported artifacts count as a MISS -> work at full attention. Treat a
    routing decision's verified context ids as truth, never a recap.
-3. WORK FROM THE POOL: if brief lists open tasks within your budget, pull one:
+3. WORK FROM THE POOL (loop, do not ask permission): while brief lists open
+   tasks within your budget —
 
-       ward task next --by <your-name> --max-tier <cheap|mid|strong>
+       ward task next --by <your-name> --max-tier <budget>
+
+   implement the pulled task's title in this repo, prove it with
+
        ward task run <task-id>
 
-   It runs the work, captures the result, and closes the task. On failure the
-   task re-enters the pool one tier higher — do not retry it yourself.
+   then repeat until the pool is empty or every remaining task is beyond your
+   ability or blocked. On failure the task re-enters the pool one tier higher —
+   do not retry it yourself; pull different work or stop. To resume a task a
+   dead session left claimed: ward task take <id> --by <your-name>.
+   When nothing is left: ward memory handoff, then stop.
 4. EXCLUSIVE WORK: before touching a shared topic outside the pool (file,
    migration, release), run: ward memory claim add <topic> --ttl 60
    A conflict is a hard stop: pick different work, never proceed in parallel.
