@@ -258,6 +258,18 @@ func nextActions(b brief) []string {
 	}
 	if len(b.OpenTasks) > 0 {
 		next = append(next, fmt.Sprintf("%d open task(s) in the pool: ward task next --by <your-name> --max-tier <budget>", len(b.OpenTasks)))
+	} else {
+		// Pool empty: the work source may be an unchecked plan, not the task
+		// pool. Point at it instead of declaring "nothing to do".
+		var plans []string
+		for _, name := range []string{"PLAN.md", "SPEC.md"} {
+			if _, err := os.Stat(name); err == nil {
+				plans = append(plans, name)
+			}
+		}
+		if len(plans) > 0 {
+			next = append(next, fmt.Sprintf("pool is empty — review %s for open items (the plan is the work source, not the task pool)", strings.Join(plans, "/")))
+		}
 	}
 	if b.Topic != "" {
 		verified, unverified := 0, 0

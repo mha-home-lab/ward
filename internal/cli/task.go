@@ -210,10 +210,12 @@ func taskNextCmd() *cobra.Command {
 // into the pool one tier higher (FailTask); on rejection past strong it stops
 // for a human. The agent never threads ids between commands or retries by hand.
 func taskRunCmd() *cobra.Command {
+	var by string
 	c := &cobra.Command{
 		Use:   "run <id>",
 		Short: "execute a claimed task end-to-end: generate workflow, run, capture, close",
 		Example: `  ward task run task-1a2b
+  ward task run task-1a2b --by agent-3   # auto-claim if still open
   ward task run task-1a2b --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
@@ -229,7 +231,18 @@ func taskRunCmd() *cobra.Command {
 				return failErr(err)
 			}
 			if t.Status == "open" {
-				return failErr(fmt.Errorf("task %s is not claimed: pull it first with ward task next --by <your-name>", t.ID))
+				// Auto-claim so `task run <id>` is a single command, not
+				// run-then-next. TakeTask fails if another agent holds it.
+				if by == "" {
+					return failErr(fmt.Errorf("task %s is not claimed: run 'ward task next --by <your-name>' first, or pass --by here", t.ID))
+				}
+				if _, err := s.TakeTask(t.ID, by); err != nil {
+					return failErr(err)
+				}
+				t, err = s.GetTask(t.ID)
+				if err != nil {
+					return failErr(err)
+				}
 			}
 			if t.Status != "claimed" {
 				return failErr(fmt.Errorf("task %s is %s, not executable", t.ID, t.Status))
@@ -332,6 +345,7 @@ func taskRunCmd() *cobra.Command {
 			return nil
 		},
 	}
+	c.Flags().StringVar(&by, "by", "", "agent claiming the task if it is still open (auto-claims)")
 	return c
 }
 

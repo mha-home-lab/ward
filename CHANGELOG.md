@@ -3,6 +3,36 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## Unreleased — UX gaps from real use (doc-claims + two fixes)
+
+Feedback from running v0.9.1 surfaced three gaps; all three closed without new
+verifier logic.
+
+### Added
+
+- **`ward doc assert <path> <pattern>`** — registers a documentation/spec/architecture
+  claim as a `doc`-kind, store-local, grep artifact (`pattern::path`) and verifies
+  it live (exit 1 on failure, so it is scriptable). This is the missing piece for
+  catching stale prose: docs become first-class verifiable artifacts, so a README
+  whose attack surface drifts from code is caught by `ward verify` / `ward tick` /
+  `ward brief` drift — exactly like any other verification. `ward doc verify`
+  re-runs every doc claim.
+
+### Fixed
+
+- **`task run <id>` auto-claims** — passing `--by` now claims an unclaimed task
+  instead of erroring "pull it first" (TakeTask still rejects another agent's
+  claim). One command, not run-then-next.
+- **`ward brief` points at the plan when the pool is empty** — if no open tasks
+  but `PLAN.md`/`SPEC.md` exist in cwd, the next-action step suggests reviewing
+  the plan (the plan is the work source, not the task pool).
+
+### Rejected (intentionally)
+
+- A speculative `ward lint docs` that heuristically mines spec↔code invariants:
+  unverifiable pattern-matching. The explicit doc-claim is the honest,
+  agent-controlled primitive.
+
 ## [v0.9.1] — 2026-08-29 — context management (mechanical reload + mid-task checkpoint)
 
 Closes the gap the consulting review named: reload was 100% protocol-trust
