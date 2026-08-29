@@ -306,7 +306,7 @@ func TestTimelineUnifiesSpansTransitionsCaptures(t *testing.T) {
 	putLocalFact(t, dir, "timeline fact", "timeline", "topic:tl")
 
 	_, runOut := claimAndRunOne(t, "agent-tl", "timed work", map[string]string{
-		"tier": "mid", "run": "true",
+		"tier": "mid", "run": "test -f /etc/hosts",
 		"verify-cmd": "grep -q timeline fact.txt", "tags": "topic:tl",
 	})
 	_ = runOut
@@ -339,7 +339,7 @@ func TestExplainAndRejectJSONShapes(t *testing.T) {
 	putLocalFact(t, dir, "explainable fact", "explainable", "topic:ex")
 
 	taskID, runOut := claimAndRunOne(t, "agent-e", "explained work", map[string]string{
-		"tier": "mid", "run": "true", "verify-cmd": "grep -q explainable fact.txt",
+		"tier": "mid", "run": "test -f /etc/hosts", "verify-cmd": "grep -q explainable fact.txt",
 	})
 	runID := runOut["run"].(string)
 
@@ -370,7 +370,7 @@ func TestCaptureJSONHonestCounts(t *testing.T) {
 	newSurfaceStore(t)
 
 	taskID, runOut := claimAndRunOne(t, "agent-c", "captured work", map[string]string{
-		"tier": "mid", "run": "true", "verify-cmd": "test -x /tmp",
+		"tier": "mid", "run": "test -f /etc/hosts", "verify-cmd": "test -x /tmp",
 	})
 	runID := runOut["run"].(string)
 

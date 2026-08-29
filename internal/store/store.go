@@ -127,7 +127,21 @@ func (s *Store) migrate() error {
 	if err := s.addColumn("runs", "workflow_hash", "TEXT"); err != nil {
 		return err
 	}
-	_, err := s.DB.Exec("PRAGMA user_version = 6")
+	// v6 -> v7 (transparency patch): map a task to its most recent run so the
+	// audit window (`ward task show`) and the pre-close gate can locate the
+	// sidecar evidence file without guessing. Additive; old runs stay untagged.
+	if err := s.addColumn("tasks", "last_run_id", "TEXT"); err != nil {
+		return err
+	}
+	// v7 -> v8 (legacy-evidence flag): a run is only "proven" if it left a
+	// sidecar log. Existing rows predate that feature, so they are backfilled
+	// to 'legacy' (unprovable) and must NOT be counted as verified evidence.
+	// New runs default to 'legacy' too, and are promoted to 'backed' the moment
+	// their first sidecar is written.
+	if err := s.addColumn("runs", "evidence", "TEXT DEFAULT 'legacy'"); err != nil {
+		return err
+	}
+	_, err := s.DB.Exec("PRAGMA user_version = 8")
 	return err
 }
 
@@ -212,6 +226,7 @@ type RunState struct {
 	WaitingApproval string
 	CurrentItem     string
 	Ceremony        string
+	Evidence        string // backed (sidecar log exists) | legacy (pre-evidence run, unprovable)
 	CreatedAt       string
 	UpdatedAt       string
 }

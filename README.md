@@ -76,7 +76,7 @@ Two honest boundaries, stated plainly:
 |---|---|
 | `ward init [--scaffold\|--docs\|--no-agents-md]` | create the store; inject the agent protocol |
 | `ward brief [topic] [--compact]` | session bootstrap: live re-verify, expired claims, knowledge, pool, next actions |
-| `ward task add \| next \| run \| take \| drop \| list \| done \| fail \| workflow` | the dispatch pool |
+| `ward task add \| next \| run \| take \| drop \| list \| done \| fail \| show \| workflow` | the dispatch pool (incl. audit window) |
 | `ward memory put \| get \| search \| list \| promote \| supersede \| handoff \| context \| stale` | the agent memory store |
 | `ward memory claim add \| release \| list` | exclusive topic reservations (hard conflict error) |
 | `ward verify <id> [\|--all]` | run an artifact's verify_cmd live (store-local only) |
@@ -104,10 +104,13 @@ All kinds execute only for store-local artifacts.
 
 **The gate is the whole proof.** A task's `--run`/`--verify-cmd` closes the
 task only when it passes — so it must exercise the real change end-to-end.
-A placeholder like `true` closes tasks while proving nothing (phantom
-success); `ward task add` warns about missing or placeholder gates at
-authoring time. For concurrent Go work, make the check
-`go test ./... -race`: plain `go test ./...` hides data races.
+A placeholder like `true`/`echo`/`--run ""` closes tasks while proving
+nothing (phantom success); `ward task add` **hard-rejects** phantom gates at
+authoring time and warns on missing ones. Every run writes a sidecar evidence
+log to `.ward/logs/` and `ward task show <id>` opens it — so a closed task is
+always backed by a readable `exit_code` and command output, never a black box.
+For concurrent Go work, make the check `go test ./... -race`: plain
+`go test ./...` hides data races.
 
 ## Ops
 

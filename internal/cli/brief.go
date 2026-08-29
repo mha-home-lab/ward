@@ -127,6 +127,13 @@ func briefCmd() *cobra.Command {
 			b.Health = map[string]int{
 				"accepted": len(accepted), "verified": verified, "proposed": len(proposed),
 			}
+			// Run evidence split: only 'backed' runs are proven completions.
+			// Legacy runs predate the sidecar feature and must NOT be counted
+			// as verified evidence.
+			if backed, legacy, eerr := s.CountRunEvidence(); eerr == nil {
+				b.Health["runs_backed"] = backed
+				b.Health["runs_legacy"] = legacy
+			}
 
 			// R5 reflection item: chips are caches of the brain; if their
 			// sources drifted, agents are being taught stale facts. Surface
@@ -324,6 +331,10 @@ func printHumanBrief(b brief) {
 	if b.Health != nil {
 		fmt.Printf("store: accepted=%d verified=%d proposed=%d\n",
 			b.Health["accepted"], b.Health["verified"], b.Health["proposed"])
+		if b.Health["runs_backed"] > 0 || b.Health["runs_legacy"] > 0 {
+			fmt.Printf("runs: backed=%d legacy=%d  (legacy = pre-evidence, NOT proven by a sidecar log)\n",
+				b.Health["runs_backed"], b.Health["runs_legacy"])
+		}
 	}
 	fmt.Println("next:")
 	for i, n := range b.Next {

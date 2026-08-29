@@ -227,10 +227,10 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 		}
 	}
 	if node.Run != "" {
-		out, rerr := execShell(node.Run, e.repo())
+		out, exitCode, rerr := e.execLogged(runID, nodeID, node.Run, e.repo())
 		detail := "exec ok"
 		if rerr != nil {
-			detail = "exec failed: " + rerr.Error()
+			detail = fmt.Sprintf("exec failed (exit %d): %s", exitCode, rerr.Error())
 		}
 		if len(out) > 0 {
 			detail += " | " + truncate(string(out), 200)
@@ -380,6 +380,14 @@ func (e *Engine) WriteDossier(runID, nodeID string) {
 			continue
 		}
 		fmt.Fprintf(&b, "  [%s] %s: %s\n", ev.At, ev.Action, ev.Detail)
+	}
+	// Failure tail: the evidence the human actually needs — WHY it failed, not
+	// just "failed 2x". Pull the last lines of the sidecar log for this run.
+	if content, ok := store.ReadSidecar(runID); ok {
+		b.WriteString("\nLast execution evidence (from sidecar log):\n")
+		for _, l := range store.Tail(content, 20) {
+			b.WriteString("  " + l + "\n")
+		}
 	}
 	a := store.Artifact{
 		Kind:      "error",
@@ -579,13 +587,37 @@ func (e *Engine) observe(node Node) string {
 	return string(b)
 }
 
-// execShell runs a node's `run` command in the repo root (the real adapter).
-func execShell(cmd, repo string) ([]byte, error) {
+// execLogged runs a node's `run` command in the repo root (the real adapter)
+// and ALSO writes a sidecar evidence log under WARD_HOME/logs so the run is
+// auditable outside the binary db. It returns the combined output, the exit
+// code, and the (os/exec) error. A best-effort sidecar write failure is logged
+// but never masks the execution outcome — the check's pass/fail is what gates.
+func (e *Engine) execLogged(runID, nodeID, cmd, repo string) ([]byte, int, error) {
+	start := time.Now()
 	c := exec.Command("sh", "-c", cmd)
 	if repo != "" {
 		c.Dir = repo
 	}
-	return c.CombinedOutput()
+	out, err := c.CombinedOutput()
+	elapsed := time.Since(start)
+	exitCode := 0
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			exitCode = ee.ExitCode()
+		} else {
+			exitCode = -1
+		}
+	}
+	// Transparency: persist what ran, regardless of success, so humans can read
+	// the evidence even for green runs (and especially for red ones).
+	if _, werr := store.WriteSidecar(runID, nodeID, cmd, exitCode, elapsed, out); werr != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not write sidecar log for %s/%s: %v\n", runID, nodeID, werr)
+	} else if e.Store != nil {
+		// The run is now evidence-backed: it can be counted as proven, not as a
+		// legacy (pre-evidence) completion.
+		_ = e.Store.SetRunEvidence(runID, "backed")
+	}
+	return out, exitCode, err
 }
 
 func truncate(s string, n int) string {

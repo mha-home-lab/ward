@@ -258,21 +258,25 @@ func nullStr(s sql.NullString) string {
 
 // CreateRun inserts a new run row.
 func (s *Store) CreateRun(r RunState) error {
+	evidence := r.Evidence
+	if evidence == "" {
+		evidence = "legacy"
+	}
 	_, err := s.DB.Exec(`INSERT INTO runs (id, workflow_name, workflow_path, workflow_hash, status, waiting_approval_id,
-		current_item_id, ceremony_level, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		current_item_id, ceremony_level, evidence, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.WorkflowName, r.WorkflowPath, r.WorkflowHash, r.Status, r.WaitingApproval, r.CurrentItem, r.Ceremony,
-		r.CreatedAt, r.UpdatedAt)
+		evidence, r.CreatedAt, r.UpdatedAt)
 	return err
 }
 
 // LoadRun loads a run by id.
 func (s *Store) LoadRun(id string) (RunState, error) {
 	var r RunState
-	var wa, ci, cer, wp, wh sql.NullString
+	var wa, ci, cer, wp, wh, ev sql.NullString
 	err := s.DB.QueryRow(`SELECT id, workflow_name, workflow_path, workflow_hash, status, waiting_approval_id,
-		current_item_id, ceremony_level, created_at, updated_at FROM runs WHERE id=?`, id).
-		Scan(&r.ID, &r.WorkflowName, &wp, &wh, &r.Status, &wa, &ci, &cer, &r.CreatedAt, &r.UpdatedAt)
+		current_item_id, ceremony_level, evidence, created_at, updated_at FROM runs WHERE id=?`, id).
+		Scan(&r.ID, &r.WorkflowName, &wp, &wh, &r.Status, &wa, &ci, &cer, &ev, &r.CreatedAt, &r.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return r, fmt.Errorf("no run %s", id)
 	}
@@ -280,7 +284,7 @@ func (s *Store) LoadRun(id string) (RunState, error) {
 		return r, err
 	}
 	r.WorkflowPath, r.WorkflowHash = nullStr(wp), nullStr(wh)
-	r.WaitingApproval, r.CurrentItem, r.Ceremony = nullStr(wa), nullStr(ci), nullStr(cer)
+	r.WaitingApproval, r.CurrentItem, r.Ceremony, r.Evidence = nullStr(wa), nullStr(ci), nullStr(cer), nullStr(ev)
 	return r, nil
 }
 
@@ -288,11 +292,11 @@ func (s *Store) LoadRun(id string) (RunState, error) {
 // Used to resolve a workflow path when a command is invoked without --workflow.
 func (s *Store) LatestRun() (RunState, error) {
 	var r RunState
-	var wa, ci, cer, wp, wh sql.NullString
+	var wa, ci, cer, wp, wh, ev sql.NullString
 	err := s.DB.QueryRow(`SELECT id, workflow_name, workflow_path, workflow_hash, status, waiting_approval_id,
-		current_item_id, ceremony_level, created_at, updated_at FROM runs
+		current_item_id, ceremony_level, evidence, created_at, updated_at FROM runs
 		ORDER BY created_at DESC, rowid DESC LIMIT 1`).
-		Scan(&r.ID, &r.WorkflowName, &wp, &wh, &r.Status, &wa, &ci, &cer, &r.CreatedAt, &r.UpdatedAt)
+		Scan(&r.ID, &r.WorkflowName, &wp, &wh, &r.Status, &wa, &ci, &cer, &ev, &r.CreatedAt, &r.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return r, fmt.Errorf("no runs yet")
 	}
@@ -300,7 +304,7 @@ func (s *Store) LatestRun() (RunState, error) {
 		return r, err
 	}
 	r.WorkflowPath, r.WorkflowHash = nullStr(wp), nullStr(wh)
-	r.WaitingApproval, r.CurrentItem, r.Ceremony = nullStr(wa), nullStr(ci), nullStr(cer)
+	r.WaitingApproval, r.CurrentItem, r.Ceremony, r.Evidence = nullStr(wa), nullStr(ci), nullStr(cer), nullStr(ev)
 	return r, nil
 }
 
@@ -308,7 +312,7 @@ func (s *Store) LatestRun() (RunState, error) {
 // approval), oldest first. Used by handoff and brief to surface unfinished work.
 func (s *Store) OpenRuns() ([]RunState, error) {
 	rows, err := s.DB.Query(`SELECT id, workflow_name, workflow_path, workflow_hash, status, waiting_approval_id,
-		current_item_id, ceremony_level, created_at, updated_at FROM runs
+		current_item_id, ceremony_level, evidence, created_at, updated_at FROM runs
 		WHERE status IN ('running','awaiting_approval') ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, err
@@ -317,30 +321,66 @@ func (s *Store) OpenRuns() ([]RunState, error) {
 	var out []RunState
 	for rows.Next() {
 		var r RunState
-		var wa, ci, cer, wp, wh sql.NullString
-		if err := rows.Scan(&r.ID, &r.WorkflowName, &wp, &wh, &r.Status, &wa, &ci, &cer, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		var wa, ci, cer, wp, wh, ev sql.NullString
+		if err := rows.Scan(&r.ID, &r.WorkflowName, &wp, &wh, &r.Status, &wa, &ci, &cer, &ev, &r.CreatedAt, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
 		r.WorkflowPath, r.WorkflowHash = nullStr(wp), nullStr(wh)
-		r.WaitingApproval, r.CurrentItem, r.Ceremony = nullStr(wa), nullStr(ci), nullStr(cer)
+		r.WaitingApproval, r.CurrentItem, r.Ceremony, r.Evidence = nullStr(wa), nullStr(ci), nullStr(cer), nullStr(ev)
 		out = append(out, r)
 	}
 	return out, nil
 }
 
+// SetRunEvidence marks a run as evidence-backed (a sidecar log now exists) or
+// rolls it back to 'legacy'. A run only counts as proven once it carries 'backed'.
+func (s *Store) SetRunEvidence(runID, evidence string) error {
+	_, err := s.DB.Exec(`UPDATE runs SET evidence=? WHERE id=?`, evidence, runID)
+	return err
+}
+
+// CountRunEvidence returns how many runs are evidence-backed vs legacy. Legacy
+// runs predate the sidecar feature (or never executed a node) and must NOT be
+// counted as proven completions.
+func (s *Store) CountRunEvidence() (backed, legacy int, err error) {
+	rows, err := s.DB.Query(`SELECT evidence FROM runs`)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ev sql.NullString
+		if err := rows.Scan(&ev); err != nil {
+			return 0, 0, err
+		}
+		if nullStr(ev) == "backed" {
+			backed++
+		} else {
+			legacy++
+		}
+	}
+	return backed, legacy, nil
+}
+
 // SaveRun upserts run state.
 func (s *Store) SaveRun(r RunState) error {
 	// workflow_hash is written on INSERT only: it is the run's identity at
-	// birth and is never overwritten by later transitions.
+	// birth and is never overwritten by later transitions. Evidence is also
+	// preserved on update (set explicitly via SetRunEvidence), so it is NOT
+	// clobbered here.
+	evidence := r.Evidence
+	if evidence == "" {
+		evidence = "legacy"
+	}
 	_, err := s.DB.Exec(`INSERT INTO runs (id, workflow_name, workflow_path, workflow_hash, status, waiting_approval_id,
-		current_item_id, ceremony_level, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?)
+		current_item_id, ceremony_level, evidence, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET status=excluded.status,
 		workflow_path=excluded.workflow_path,
 		waiting_approval_id=excluded.waiting_approval_id, current_item_id=excluded.current_item_id,
 		ceremony_level=excluded.ceremony_level, updated_at=excluded.updated_at`,
 		r.ID, r.WorkflowName, r.WorkflowPath, r.WorkflowHash, r.Status, r.WaitingApproval, r.CurrentItem, r.Ceremony,
-		r.CreatedAt, r.UpdatedAt)
+		evidence, r.CreatedAt, r.UpdatedAt)
 	return err
 }
 

@@ -17,8 +17,8 @@ import (
 // capture, close. Failure bumps the floor so the item re-enters the pool for a
 // more capable agent; past strong it is rejected for a human, never looped.
 func taskCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "task", Short: "claimable work items: add/next/run/take/drop/list/done/fail/workflow"}
-	cmd.AddCommand(taskAddCmd(), taskNextCmd(), taskRunCmd(), taskTakeCmd(), taskDropCmd(), taskListCmd(), taskDoneCmd(), taskFailCmd(), taskWorkflowCmd())
+	cmd := &cobra.Command{Use: "task", Short: "claimable work items: add/next/run/take/drop/list/done/fail/show/workflow"}
+	cmd.AddCommand(taskAddCmd(), taskNextCmd(), taskRunCmd(), taskTakeCmd(), taskDropCmd(), taskListCmd(), taskDoneCmd(), taskFailCmd(), taskShowCmd(), taskWorkflowCmd())
 	return cmd
 }
 
@@ -117,14 +117,18 @@ func taskAddCmd() *cobra.Command {
 			}
 			// Field-report guard (muse-spark DX report): agents new to ward
 			// used placeholder runs (`true`) that never exercised real code,
-			// so tasks closed as done while proving nothing. Warn loudly at
-			// authoring time; stderr keeps --json output parseable.
+			// so tasks closed as done while proving nothing. Phantom gates are
+			// HARD-rejected at authoring time (neverphantom): a task must carry
+			// a real acceptance check, or the author must consciously accept the
+			// "no check" warning for genuinely manual work.
 			warn := func(msg string) { fmt.Fprintln(os.Stderr, "warning: "+msg) }
 			switch {
 			case run == "" && verifyCmd == "":
 				warn("task has NO acceptance check: pass --run/--verify-cmd exercising the real change, or completion proves nothing (phantom success)")
-			case strings.TrimSpace(run) == "true", strings.TrimSpace(verifyCmd) == "true":
-				warn("placeholder check 'true' closes this task while proving nothing: make the gate exercise the real change")
+			case isTrivialVerify(run):
+				return failErr(fmt.Errorf("rejected: --run %q is a phantom gate (true/echo/: prove nothing). Provide a real acceptance check that exercises the change", run))
+			case isTrivialVerify(verifyCmd):
+				return failErr(fmt.Errorf("rejected: --verify-cmd %q is a phantom gate (true/echo/: prove nothing). Provide a real acceptance check that exercises the change", verifyCmd))
 			}
 			id, err := s.CreateTask(store.Task{
 				Title: title, Kind: kind, TierFloor: tier,
@@ -240,6 +244,9 @@ func taskRunCmd() *cobra.Command {
 			if err != nil {
 				return failErr(err)
 			}
+			if err := s.SetTaskLastRun(t.ID, runID); err != nil {
+				return failErr(err)
+			}
 			nCaptured := autoCapture(s, wf, runID)
 			r, err := s.LoadRun(runID)
 			if err != nil {
@@ -249,6 +256,15 @@ func taskRunCmd() *cobra.Command {
 			out := map[string]string{"task": t.ID, "run": runID, "run_status": r.Status}
 			switch r.Status {
 			case "completed":
+				// Pre-close gate (transparency patch): a task that declared a
+				// gate may only close if the run left verifiable evidence that
+				// the check actually ran and exited 0. This is the check that
+				// stops a task from closing behind missing/broken proof.
+				if t.Run != "" || t.VerifyCmd != "" {
+					if err := gateEvidence(t.ID, runID); err != nil {
+						return failErr(err)
+					}
+				}
 				if err := s.CompleteTask(t.ID, t.ClaimedBy); err != nil {
 					return failErr(err)
 				}
@@ -454,6 +470,135 @@ func printTask(t store.Task) {
 		line += fmt.Sprintf(" (by %s)", t.ClaimedBy)
 	}
 	printLine(line)
+}
+
+// taskShowCmd is the audit window: it surfaces a task's metadata and the
+// evidence of its most recent run (exit code + last 15 lines of the sidecar
+// log) so a human or agent can SEE what ran and why — no prying into the binary
+// db. This directly answers the "I couldn't inspect task metadata" complaint.
+func taskShowCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "show <id>",
+		Short: "audit a task: metadata + last run evidence (exit code, log tail)",
+		Example: `  ward task show task-1a2b
+  ward task show task-1a2b --json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return failErr(errNeedID)
+			}
+			s, err := store.Open()
+			if err != nil {
+				return failErr(err)
+			}
+			defer s.DB.Close()
+			t, err := s.GetTask(args[0])
+			if err != nil {
+				return failErr(err)
+			}
+			if jsonOut {
+				out := map[string]any{
+					"id":         t.ID,
+					"title":      t.Title,
+					"status":     t.Status,
+					"kind":       t.Kind,
+					"tier_floor": t.TierFloor,
+					"claimed_by": t.ClaimedBy,
+					"tags":       t.Tags,
+					"run":        t.Run,
+					"verify_cmd": t.VerifyCmd,
+					"last_run":   t.LastRunID,
+				}
+				if t.LastRunID != "" {
+					if r, rerr := s.LoadRun(t.LastRunID); rerr == nil {
+						out["run_status"] = r.Status
+						out["evidence"] = r.Evidence
+					}
+					if content, ok := store.ReadSidecar(t.LastRunID); ok {
+						if code, has := store.SidecarExitCode(content); has {
+							out["exit_code"] = code
+						}
+						out["log_tail"] = store.Tail(content, 15)
+					}
+				}
+				printJSON(out)
+				return nil
+			}
+			printLine(fmt.Sprintf("Task: %s", t.ID))
+			printLine(fmt.Sprintf("Title: %s", t.Title))
+			printLine(fmt.Sprintf("Status: %s", t.Status))
+			printLine(fmt.Sprintf("Kind: %s", t.Kind))
+			printLine(fmt.Sprintf("Tier Floor: %s", t.TierFloor))
+			if t.ClaimedBy != "" {
+				printLine(fmt.Sprintf("Claimed By: %s", t.ClaimedBy))
+			}
+			if len(t.Tags) > 0 {
+				printLine(fmt.Sprintf("Tags: %s", strings.Join(t.Tags, ", ")))
+			}
+			printLine(fmt.Sprintf("Run: %s", orDefault(t.Run, "(none)")))
+			printLine(fmt.Sprintf("Verify Cmd: %s", orDefault(t.VerifyCmd, "(none)")))
+			printLine(fmt.Sprintf("Last Run: %s", orDefault(t.LastRunID, "(none)")))
+			if t.LastRunID == "" {
+				return nil
+			}
+			if r, rerr := s.LoadRun(t.LastRunID); rerr == nil {
+				printLine("")
+				printLine(fmt.Sprintf("--- Run: %s ---", r.ID))
+				printLine(fmt.Sprintf("Status: %s", r.Status))
+				if r.Evidence == "backed" {
+					printLine("Evidence: backed (sidecar log present)")
+				} else {
+					printLine("Evidence: legacy (pre-evidence run — no sidecar log, NOT counted as proven)")
+				}
+				if content, ok := store.ReadSidecar(t.LastRunID); ok {
+					if code, has := store.SidecarExitCode(content); has {
+						printLine(fmt.Sprintf("Exit Code: %d", code))
+					}
+					printLine("--- Last 15 lines of execution log ---")
+					for _, l := range store.Tail(content, 15) {
+						printLine(l)
+					}
+				} else {
+					printLine("(no sidecar evidence found for this run)")
+				}
+			}
+			return nil
+		},
+	}
+	return c
+}
+
+// isTrivialVerify reports whether a gate command is a phantom that proves
+// nothing: `true`, `:` (bash noop), `false`, or any `echo ...` (prints static
+// text and exits 0). An empty command is NOT trivial here — manual tasks may
+// legitimately have no gate, and that path stays a warning, not a hard reject.
+func isTrivialVerify(cmd string) bool {
+	t := strings.TrimSpace(cmd)
+	if t == "" {
+		return false
+	}
+	switch t {
+	case "true", ":", "false", "echo":
+		return true
+	}
+	if strings.HasPrefix(t, "echo ") {
+		return true
+	}
+	return false
+}
+
+// gateEvidence enforces the pre-close rule: a task that declared a gate may only
+// close if its run produced a sidecar log showing exit_code == 0. Missing or
+// failed evidence blocks the close and points the caller at `ward task show`.
+func gateEvidence(taskID, runID string) error {
+	if _, ok := store.FindSidecar(runID); !ok {
+		return fmt.Errorf("cannot close task %s: verification evidence missing (no sidecar log for run %s). Run 'ward task show %s' for details", taskID, runID, taskID)
+	}
+	content, _ := store.ReadSidecar(runID)
+	code, has := store.SidecarExitCode(content)
+	if !has || code != 0 {
+		return fmt.Errorf("cannot close task %s: verification failed (exit_code=%v) or evidence is missing. Run 'ward task show %s' for details", taskID, code, taskID)
+	}
+	return nil
 }
 
 func orDefault(s, def string) string {

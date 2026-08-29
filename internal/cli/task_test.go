@@ -17,7 +17,7 @@ func TestTaskBrokerFlow(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
-	execCmd(taskAddCmd(), t, []string{"fix login redirect"}, map[string]string{"tier": "mid", "run": "true"})
+	execCmd(taskAddCmd(), t, []string{"fix login redirect"}, map[string]string{"tier": "mid", "run": "test -f /etc/hosts"})
 	execCmd(taskAddCmd(), t, []string{"tiny cleanup"}, map[string]string{"tier": "cheap"})
 
 	// A cheap-budget agent is never offered the mid item.
@@ -60,7 +60,7 @@ func TestTaskBrokerFlow(t *testing.T) {
 		// Node ids are PER-TASK ("work-<id>") so capture tags never collide
 		// across tasks — a shared "work" tag let one task's result vouch for
 		// another's node (dogfood regression).
-		if strings.HasPrefix(n.ID, "work-") && n.Run == "true" {
+		if strings.HasPrefix(n.ID, "work-") && n.Run == "test -f /etc/hosts" {
 			found = true
 		}
 	}
@@ -141,7 +141,7 @@ func TestTaskRunCompletesAndCaptures(t *testing.T) {
 	t.Chdir(dir)
 
 	execCmd(taskAddCmd(), t, []string{"run tests"}, map[string]string{
-		"tier": "cheap", "kind": "test", "run": "true",
+		"tier": "cheap", "kind": "test", "run": "test -f /etc/hosts",
 	})
 	next := taskNextCmd()
 	if err := next.Flags().Set("by", "agent-a"); err != nil {
@@ -400,7 +400,7 @@ func TestTopicTagsCompoundAcrossTasks(t *testing.T) {
 
 	for _, title := range []string{"regression A", "regression B"} {
 		execCmd(taskAddCmd(), t, []string{title}, map[string]string{
-			"tier": "cheap", "kind": "test", "run": "true", "tags": "topic:regression",
+			"tier": "cheap", "kind": "test", "run": "test -f /etc/hosts", "tags": "topic:regression",
 		})
 	}
 
@@ -555,14 +555,14 @@ func TestTopicCompoundingSurvivesSummaryWording(t *testing.T) {
 	// Task A: kind test -> its capture summary contains "(test)", never
 	// anything about task B.
 	execCmd(taskAddCmd(), t, []string{"alpha work"}, map[string]string{
-		"tier": "cheap", "kind": "test", "run": "true",
-		"verify-cmd": "true", "tags": "topic:wording",
+		"tier": "cheap", "kind": "test", "run": "test -f /etc/hosts",
+		"verify-cmd": "test -f /etc/hosts", "tags": "topic:wording",
 	})
 	// Task B: kind default -> FTS over "work-<B>" and "default" cannot match
 	// A's capture text. Compounding must still hit via the topic tag.
 	execCmd(taskAddCmd(), t, []string{"beta work"}, map[string]string{
-		"tier": "cheap", "kind": "default", "run": "true",
-		"verify-cmd": "true", "tags": "topic:wording",
+		"tier": "cheap", "kind": "default", "run": "test -f /etc/hosts",
+		"verify-cmd": "test -f /etc/hosts", "tags": "topic:wording",
 	})
 
 	var secondID string
@@ -611,11 +611,11 @@ func TestTopicCompoundingSurvivesSummaryWording(t *testing.T) {
 
 // Field-report regression (muse-spark DX): agents authored placeholder gates
 // ("true") or no check at all, so tasks closed as done while proving nothing.
-// task add must warn loudly at authoring time (stderr, keeping --json clean).
+// task add must WARN on missing checks and HARD-REJECT phantom gates (neverphantom).
 func TestTaskAddWarnsOnWeakGate(t *testing.T) {
 	t.Setenv("WARD_HOME", t.TempDir())
 
-	capture := func(args []string) string {
+	capture := func(args []string) (string, error) {
 		old := os.Stderr
 		r, w, _ := os.Pipe()
 		os.Stderr = w
@@ -625,19 +625,28 @@ func TestTaskAddWarnsOnWeakGate(t *testing.T) {
 		w.Close()
 		os.Stderr = old
 		out, _ := io.ReadAll(r)
-		if execErr != nil {
-			t.Fatalf("task add %v failed: %v", args, execErr)
-		}
-		return string(out)
+		return string(out), execErr
 	}
 
-	if s := capture([]string{"no gate", "--tier", "cheap"}); !strings.Contains(s, "NO acceptance check") {
+	// No gate at all: allowed, but warned loudly (manual work is legitimate).
+	if s, err := capture([]string{"no gate", "--tier", "cheap"}); err != nil {
+		t.Fatalf("no-gate task must still be allowed: %v", err)
+	} else if !strings.Contains(s, "NO acceptance check") {
 		t.Fatalf("missing-check task must warn: %q", s)
 	}
-	if s := capture([]string{"placeholder gate", "--tier", "cheap", "--run", "true"}); !strings.Contains(s, "placeholder check") {
-		t.Fatalf("'true' run must warn: %q", s)
+	// Phantom gates are rejected outright so a task can never close behind them.
+	for _, ph := range []string{"true", ":", "echo", "echo done"} {
+		if _, err := capture([]string{"phantom gate", "--tier", "cheap", "--run", ph}); err == nil {
+			t.Fatalf("phantom run %q must be rejected, not accepted", ph)
+		}
 	}
-	if s := capture([]string{"real gate", "--tier", "cheap", "--run", "go build ./..."}); strings.Contains(s, "warning") {
+	if _, err := capture([]string{"phantom verify", "--tier", "cheap", "--verify-cmd", "true"}); err == nil {
+		t.Fatalf("phantom verify-cmd 'true' must be rejected")
+	}
+	// A real gate is accepted without warning.
+	if s, err := capture([]string{"real gate", "--tier", "cheap", "--run", "go build ./..."}); err != nil {
+		t.Fatalf("honest gate must be accepted: %v", err)
+	} else if strings.Contains(s, "warning") {
 		t.Fatalf("honest gate must not warn: %q", s)
 	}
 }

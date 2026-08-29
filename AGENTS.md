@@ -31,16 +31,26 @@ never re-solve solved problems and never trust stale claims.
 
        ward task run <task-id>
 
-   THE RUN IS THE GATE: a task's --run/--verify-cmd is its acceptance check
-   and must exercise the real change end-to-end (field lesson: a placeholder
-   run like 'true' closes the task while proving nothing - that is a phantom
-   success, the exact failure ward exists to prevent). For concurrent Go
-   work make the check 'go test ./... -race'; default tests hide data races.
-   Then repeat until the pool is empty or every remaining task is beyond your
-   ability or blocked. On failure the task re-enters the pool one tier higher —
-   do not retry it yourself; pull different work or stop. To resume a task a
-   dead session left claimed: ward task take <id> --by <your-name>.
-   When nothing is left: ward memory handoff, then stop.
+    THE RUN IS THE GATE: a task's --run/--verify-cmd is its acceptance check
+    and must exercise the real change end-to-end (field lesson: a placeholder
+    run like 'true' closes the task while proving nothing - that is a phantom
+    success, the exact failure ward exists to prevent). For concurrent Go
+    work make the check 'go test ./... -race'; default tests hide data races.
+    Then repeat until the pool is empty or every remaining task is beyond your
+    ability or blocked. On failure the task re-enters the pool one tier higher —
+    do not retry it yourself; pull different work or stop. To resume a task a
+    dead session left claimed: ward task take <id> --by <your-name>.
+    When nothing is left: ward memory handoff, then stop.
+ 4b. NO PHANTOM RUNS (hard rule): you may NEVER use `true`, `echo`, `:`, or an
+    empty string as a verify_cmd/run. The gate MUST exercise the actual change
+    (e.g. `go test ./...`, `helm lint`, `pytest`). `ward task add` rejects these
+    at authoring time. If a task lacks a valid gate, reject/repair it before
+    claiming — never close work behind a no-op check.
+ 4c. EXTERNAL TRUTH FOR HIGH-TIER WORK: prefer immutable, observable CI over the
+    agent's own shell to break self-attestation bias. For PR-based tasks, make
+    the gate poll GitHub Actions so the task only closes when GitHub is green:
+        gh pr checks "$PR_URL" --watch --interval 10s && echo 'CI PASSED'
+    The verify command must be runnable by the engine, not a promise you made.
 5. EXCLUSIVE WORK: before touching a shared topic outside the pool (file,
    migration, release), run: ward memory claim add <topic> --ttl 60
    A conflict is a hard stop: pick different work, never proceed in parallel.
