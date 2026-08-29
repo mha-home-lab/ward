@@ -172,6 +172,30 @@ func (s *Store) CompleteTask(id, by string) error {
 	return nil
 }
 
+// ForceCloseTask closes a claimed task whose verification evidence was bypassed
+// by an explicit human --force override. It is recorded as 'force-closed' (not
+// 'done') so the audit trail distinguishes verified completions from
+// verification-bypassed ones. The bypass is a human decision, logged at the CLI;
+// this store method only persists the honest, distinct terminal status.
+func (s *Store) ForceCloseTask(id, by string) error {
+	t, err := s.GetTask(id)
+	if err != nil {
+		return err
+	}
+	if by != "" && t.ClaimedBy != by {
+		return fmt.Errorf("task %s is claimed by %s, not %s (take it first)", id, t.ClaimedBy, by)
+	}
+	res, err := s.DB.Exec(`UPDATE tasks SET status='force-closed', updated_at=? WHERE id=? AND status='claimed'`,
+		nowISO(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("task %s is not claimed", id)
+	}
+	return nil
+}
+
 // DropTask rejects a task by human decision (blocked/obsolete/out of scope)
 // from any active state, so it stops appearing in brief and the pool.
 func (s *Store) DropTask(id string) (Task, error) {

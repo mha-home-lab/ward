@@ -387,13 +387,24 @@ func taskDoneCmd() *cobra.Command {
 					fmt.Fprintln(os.Stderr, "warning: --force overriding missing/!0 verification evidence for task "+t.ID+" (human override, not audit-backed)")
 				}
 			}
+			// A forced close is recorded distinctly as 'force-closed' so the
+			// audit trail never conflates it with a verified completion.
+			if force {
+				if err := s.ForceCloseTask(args[0], by); err != nil {
+					return failErr(err)
+				}
+				out := map[string]string{"id": args[0], "status": "force-closed", "forced": "true"}
+				if jsonOut {
+					printJSON(out)
+				} else {
+					printLine("task " + args[0] + " force-closed (verification evidence bypassed)")
+				}
+				return nil
+			}
 			if err := s.CompleteTask(args[0], by); err != nil {
 				return failErr(err)
 			}
 			out := map[string]string{"id": args[0], "status": "done"}
-			if force {
-				out["forced"] = "true"
-			}
 			if jsonOut {
 				printJSON(out)
 			} else {

@@ -1,3 +1,5 @@
+> **Note:** This is a *casual AI assistant conversation transcript* (an informal product/technical chat), **not** a formal institutional or official engineering review. Filename intentionally avoids implying an Anthropic organizational endorsement.
+
 That's exactly the artifact I'd want to see for the product question — a real, tight, seven-step protocol written *for* an agent to read at session start. Good, now I have what I need for both reviews.
 
 ## Technical review

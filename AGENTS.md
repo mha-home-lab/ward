@@ -66,6 +66,10 @@ never re-solve solved problems and never trust stale claims.
    incomplete work, open runs, and stale candidates.
 8. FAILURE POLICY: two escalating failures exhaust the budget and the run
    stops for a human with a dossier (ward reject <run>). Never retry past it.
+9. COMMIT ATTRIBUTION: every commit message ends with a one-line 'Review:
+   <who verified>' (e.g. 'Review: self-review' or 'Review: Claude conversation
+   2026-08-29'). The commit trail must embody the thesis that verification
+   precedes trust — an unverified change has no reviewer attribution.
 
 PORTABLE KNOWLEDGE: accepted lessons tagged portable:<topic> are synced to
 the global skills directory by 'ward skill-sync' - load any that match your

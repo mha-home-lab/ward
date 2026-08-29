@@ -658,3 +658,47 @@ func TestTaskAddWarnsOnWeakGate(t *testing.T) {
 		t.Fatalf("honest gate must not warn: %q", s)
 	}
 }
+
+// TestTaskDoneForceClosed verifies the auditability gap fix: a gated task closed
+// with --force is recorded as 'force-closed' (not 'done'), so the audit trail
+// distinguishes a verification-bypassed close from a verified completion.
+func TestTaskDoneForceClosed(t *testing.T) {
+	t.Setenv("WARD_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+
+	execCmd(taskAddCmd(), t, []string{"gated"}, map[string]string{"tier": "mid", "run": "go version"})
+	next := taskNextCmd()
+	if err := next.Flags().Set("by", "agent-x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := next.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := store.Open()
+	ts, _ := s.ListTasks("claimed", 1)
+	if len(ts) != 1 {
+		t.Fatalf("expected one claimed task, got %d", len(ts))
+	}
+	id := ts[0].ID
+	s.DB.Close()
+
+	// Without --force and no run evidence, the gate must block the close.
+	blocked := taskDoneCmd()
+	blocked.SetArgs([]string{id, "--by", "agent-x"})
+	if err := blocked.Execute(); err == nil {
+		t.Fatal("task done without evidence must fail the gate")
+	}
+
+	// With --force the close succeeds and is recorded distinctly.
+	forced := taskDoneCmd()
+	forced.SetArgs([]string{id, "--by", "agent-x", "--force"})
+	if err := forced.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	s2, _ := store.Open()
+	defer s2.DB.Close()
+	got, _ := s2.GetTask(id)
+	if got.Status != "force-closed" {
+		t.Fatalf("forced close must record status 'force-closed', got %s", got.Status)
+	}
+}
