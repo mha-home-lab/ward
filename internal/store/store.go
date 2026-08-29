@@ -133,15 +133,13 @@ func (s *Store) migrate() error {
 	if err := s.addColumn("tasks", "last_run_id", "TEXT"); err != nil {
 		return err
 	}
-	// v7 -> v8 (legacy-evidence flag): a run is only "proven" if it left a
-	// sidecar log. Existing rows predate that feature, so they are backfilled
-	// to 'legacy' (unprovable) and must NOT be counted as verified evidence.
-	// New runs default to 'legacy' too, and are promoted to 'backed' the moment
-	// their first sidecar is written.
-	if err := s.addColumn("runs", "evidence", "TEXT DEFAULT 'legacy'"); err != nil {
-		return err
-	}
-	_, err := s.DB.Exec("PRAGMA user_version = 8")
+	// v7: verification "backed" status is DERIVED FROM DISK, not stored in the
+	// db. A run is backed iff a sidecar log exists under WARD_HOME/logs for its
+	// id; otherwise it is a trusted pre-evidence completion (it predates the
+	// sidecar feature and the run's own DB status is its proof). There is no
+	// evidence column to migrate, so historical runs are never branded "legacy"
+	// or downgraded — the disk is the single source of truth for evidence.
+	_, err := s.DB.Exec("PRAGMA user_version = 7")
 	return err
 }
 
@@ -226,7 +224,6 @@ type RunState struct {
 	WaitingApproval string
 	CurrentItem     string
 	Ceremony        string
-	Evidence        string // backed (sidecar log exists) | legacy (pre-evidence run, unprovable)
 	CreatedAt       string
 	UpdatedAt       string
 }

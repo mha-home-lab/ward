@@ -41,11 +41,16 @@ never re-solve solved problems and never trust stale claims.
     do not retry it yourself; pull different work or stop. To resume a task a
     dead session left claimed: ward task take <id> --by <your-name>.
     When nothing is left: ward memory handoff, then stop.
- 4b. NO PHANTOM RUNS (hard rule): you may NEVER use `true`, `echo`, `:`, or an
-    empty string as a verify_cmd/run. The gate MUST exercise the actual change
+ 4b. NO PHANTOM RUNS (hard rule): you may NEVER use `true`, `false`, or `:`
+    (bash no-ops) as a verify_cmd/run. The gate MUST exercise the actual change
     (e.g. `go test ./...`, `helm lint`, `pytest`). `ward task add` rejects these
-    at authoring time. If a task lacks a valid gate, reject/repair it before
-    claiming — never close work behind a no-op check.
+    exact no-ops at authoring time; we deliberately do NOT shell-lint, so an
+    `echo`-only or `echo && go test` gate is allowed (it is the agent's call,
+    not the tool's). If a task lacks any gate, that is a warning, not a hard
+    reject — manual work is legitimate. Every executed gate writes a sidecar log
+    under `.ward/logs/`; `ward task show <id>` opens it, and `ward task run`/
+    `ward task done` refuse to close a gated task without that evidence (use
+    `ward task done --force` only as a logged human override).
  4c. EXTERNAL TRUTH FOR HIGH-TIER WORK: prefer immutable, observable CI over the
     agent's own shell to break self-attestation bias. For PR-based tasks, make
     the gate poll GitHub Actions so the task only closes when GitHub is green:

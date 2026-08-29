@@ -127,12 +127,13 @@ func briefCmd() *cobra.Command {
 			b.Health = map[string]int{
 				"accepted": len(accepted), "verified": verified, "proposed": len(proposed),
 			}
-			// Run evidence split: only 'backed' runs are proven completions.
-			// Legacy runs predate the sidecar feature and must NOT be counted
-			// as verified evidence.
-			if backed, legacy, eerr := s.CountRunEvidence(); eerr == nil {
+			// Run evidence: 'backed' = a sidecar log exists (re-verifiable);
+			// 'preEvidence' = predates the sidecar feature and is trusted on
+			// its DB status. Neither is "shamed" — this just reports how much
+			// of the history is re-verifiable from a log.
+			if backed, preEvidence, eerr := s.CountRunEvidence(); eerr == nil {
 				b.Health["runs_backed"] = backed
-				b.Health["runs_legacy"] = legacy
+				b.Health["runs_pre_evidence"] = preEvidence
 			}
 
 			// R5 reflection item: chips are caches of the brain; if their
@@ -331,9 +332,9 @@ func printHumanBrief(b brief) {
 	if b.Health != nil {
 		fmt.Printf("store: accepted=%d verified=%d proposed=%d\n",
 			b.Health["accepted"], b.Health["verified"], b.Health["proposed"])
-		if b.Health["runs_backed"] > 0 || b.Health["runs_legacy"] > 0 {
-			fmt.Printf("runs: backed=%d legacy=%d  (legacy = pre-evidence, NOT proven by a sidecar log)\n",
-				b.Health["runs_backed"], b.Health["runs_legacy"])
+		if b.Health["runs_backed"] > 0 || b.Health["runs_pre_evidence"] > 0 {
+			fmt.Printf("runs: backed=%d pre-evidence=%d  (pre-evidence = trusted historical completions without a sidecar log)\n",
+				b.Health["runs_backed"], b.Health["runs_pre_evidence"])
 		}
 	}
 	fmt.Println("next:")

@@ -17,7 +17,7 @@ func TestTaskBrokerFlow(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
-	execCmd(taskAddCmd(), t, []string{"fix login redirect"}, map[string]string{"tier": "mid", "run": "test -f /etc/hosts"})
+	execCmd(taskAddCmd(), t, []string{"fix login redirect"}, map[string]string{"tier": "mid", "run": "go version"})
 	execCmd(taskAddCmd(), t, []string{"tiny cleanup"}, map[string]string{"tier": "cheap"})
 
 	// A cheap-budget agent is never offered the mid item.
@@ -60,7 +60,7 @@ func TestTaskBrokerFlow(t *testing.T) {
 		// Node ids are PER-TASK ("work-<id>") so capture tags never collide
 		// across tasks — a shared "work" tag let one task's result vouch for
 		// another's node (dogfood regression).
-		if strings.HasPrefix(n.ID, "work-") && n.Run == "test -f /etc/hosts" {
+		if strings.HasPrefix(n.ID, "work-") && n.Run == "go version" {
 			found = true
 		}
 	}
@@ -141,7 +141,7 @@ func TestTaskRunCompletesAndCaptures(t *testing.T) {
 	t.Chdir(dir)
 
 	execCmd(taskAddCmd(), t, []string{"run tests"}, map[string]string{
-		"tier": "cheap", "kind": "test", "run": "test -f /etc/hosts",
+		"tier": "cheap", "kind": "test", "run": "go version",
 	})
 	next := taskNextCmd()
 	if err := next.Flags().Set("by", "agent-a"); err != nil {
@@ -400,7 +400,7 @@ func TestTopicTagsCompoundAcrossTasks(t *testing.T) {
 
 	for _, title := range []string{"regression A", "regression B"} {
 		execCmd(taskAddCmd(), t, []string{title}, map[string]string{
-			"tier": "cheap", "kind": "test", "run": "test -f /etc/hosts", "tags": "topic:regression",
+			"tier": "cheap", "kind": "test", "run": "go version", "tags": "topic:regression",
 		})
 	}
 
@@ -555,14 +555,14 @@ func TestTopicCompoundingSurvivesSummaryWording(t *testing.T) {
 	// Task A: kind test -> its capture summary contains "(test)", never
 	// anything about task B.
 	execCmd(taskAddCmd(), t, []string{"alpha work"}, map[string]string{
-		"tier": "cheap", "kind": "test", "run": "test -f /etc/hosts",
-		"verify-cmd": "test -f /etc/hosts", "tags": "topic:wording",
+		"tier": "cheap", "kind": "test", "run": "go version",
+		"verify-cmd": "go version", "tags": "topic:wording",
 	})
 	// Task B: kind default -> FTS over "work-<B>" and "default" cannot match
 	// A's capture text. Compounding must still hit via the topic tag.
 	execCmd(taskAddCmd(), t, []string{"beta work"}, map[string]string{
-		"tier": "cheap", "kind": "default", "run": "test -f /etc/hosts",
-		"verify-cmd": "test -f /etc/hosts", "tags": "topic:wording",
+		"tier": "cheap", "kind": "default", "run": "go version",
+		"verify-cmd": "go version", "tags": "topic:wording",
 	})
 
 	var secondID string
@@ -634,14 +634,22 @@ func TestTaskAddWarnsOnWeakGate(t *testing.T) {
 	} else if !strings.Contains(s, "NO acceptance check") {
 		t.Fatalf("missing-check task must warn: %q", s)
 	}
-	// Phantom gates are rejected outright so a task can never close behind them.
-	for _, ph := range []string{"true", ":", "echo", "echo done"} {
+	// Phantom gates (exact no-ops) are rejected outright so a task can never
+	// close behind them. We do NOT shell-lint, so `echo`/`echo done` are allowed.
+	for _, ph := range []string{"true", ":", "false"} {
 		if _, err := capture([]string{"phantom gate", "--tier", "cheap", "--run", ph}); err == nil {
 			t.Fatalf("phantom run %q must be rejected, not accepted", ph)
 		}
 	}
 	if _, err := capture([]string{"phantom verify", "--tier", "cheap", "--verify-cmd", "true"}); err == nil {
 		t.Fatalf("phantom verify-cmd 'true' must be rejected")
+	}
+	// Echo chains are NOT phantom (e.g. `echo building && go test` is real work).
+	if _, err := capture([]string{"loud gate", "--tier", "cheap", "--run", "echo building && go test ./..."}); err != nil {
+		t.Fatalf("echo chained with real work must be accepted: %v", err)
+	}
+	if _, err := capture([]string{"echo only", "--tier", "cheap", "--run", "echo done"}); err != nil {
+		t.Fatalf("echo-only run must be accepted (not shell-linted): %v", err)
 	}
 	// A real gate is accepted without warning.
 	if s, err := capture([]string{"real gate", "--tier", "cheap", "--run", "go build ./..."}); err != nil {

@@ -609,13 +609,12 @@ func (e *Engine) execLogged(runID, nodeID, cmd, repo string) ([]byte, int, error
 		}
 	}
 	// Transparency: persist what ran, regardless of success, so humans can read
-	// the evidence even for green runs (and especially for red ones).
+	// the evidence even for green runs (and especially for red ones). The
+	// sidecar IS the proof of verification: if it cannot be written, the run
+	// cannot claim success. We fail the node rather than leave a "completed"
+	// task with missing evidence (a zombie state that contradicts the gate).
 	if _, werr := store.WriteSidecar(runID, nodeID, cmd, exitCode, elapsed, out); werr != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not write sidecar log for %s/%s: %v\n", runID, nodeID, werr)
-	} else if e.Store != nil {
-		// The run is now evidence-backed: it can be counted as proven, not as a
-		// legacy (pre-evidence) completion.
-		_ = e.Store.SetRunEvidence(runID, "backed")
+		return out, exitCode, fmt.Errorf("verification evidence could not be written to sidecar log: %w", werr)
 	}
 	return out, exitCode, err
 }

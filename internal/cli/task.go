@@ -354,10 +354,12 @@ func taskListCmd() *cobra.Command {
 
 func taskDoneCmd() *cobra.Command {
 	var by string
+	var force bool
 	c := &cobra.Command{
 		Use:   "done <id>",
 		Short: "mark a claimed task completed",
 		Example: `  ward task done task-1a2b --by agent-3
+  ward task done task-1a2b --force   # human override when no evidence exists
   ward task done task-1a2b --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
@@ -368,10 +370,30 @@ func taskDoneCmd() *cobra.Command {
 				return failErr(err)
 			}
 			defer s.DB.Close()
+			t, err := s.GetTask(args[0])
+			if err != nil {
+				return failErr(err)
+			}
+			// Pre-close gate (transparency patch): if the task declared a gate,
+			// 'done' must be backed by a sidecar proving it ran and exited 0 —
+			// otherwise 'done' is just a way to bypass the whole transparency
+			// guarantee. A human may override with --force, but that override is
+			// loudly logged so the bypass is never silent.
+			if t.Run != "" || t.VerifyCmd != "" {
+				if err := gateEvidence(t.ID, t.LastRunID); err != nil {
+					if !force {
+						return failErr(err)
+					}
+					fmt.Fprintln(os.Stderr, "warning: --force overriding missing/!0 verification evidence for task "+t.ID+" (human override, not audit-backed)")
+				}
+			}
 			if err := s.CompleteTask(args[0], by); err != nil {
 				return failErr(err)
 			}
 			out := map[string]string{"id": args[0], "status": "done"}
+			if force {
+				out["forced"] = "true"
+			}
 			if jsonOut {
 				printJSON(out)
 			} else {
@@ -381,6 +403,7 @@ func taskDoneCmd() *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&by, "by", "agent", "completing agent")
+	c.Flags().BoolVar(&force, "force", false, "override the verification-evidence gate (human decision; logged)")
 	return c
 }
 
@@ -511,8 +534,8 @@ func taskShowCmd() *cobra.Command {
 				if t.LastRunID != "" {
 					if r, rerr := s.LoadRun(t.LastRunID); rerr == nil {
 						out["run_status"] = r.Status
-						out["evidence"] = r.Evidence
 					}
+					_, out["evidence"] = store.FindSidecar(t.LastRunID)
 					if content, ok := store.ReadSidecar(t.LastRunID); ok {
 						if code, has := store.SidecarExitCode(content); has {
 							out["exit_code"] = code
@@ -544,10 +567,10 @@ func taskShowCmd() *cobra.Command {
 				printLine("")
 				printLine(fmt.Sprintf("--- Run: %s ---", r.ID))
 				printLine(fmt.Sprintf("Status: %s", r.Status))
-				if r.Evidence == "backed" {
+				if _, ok := store.FindSidecar(t.LastRunID); ok {
 					printLine("Evidence: backed (sidecar log present)")
 				} else {
-					printLine("Evidence: legacy (pre-evidence run — no sidecar log, NOT counted as proven)")
+					printLine("Evidence: pre-evidence (no sidecar log; trusted historical completion, not re-verifiable)")
 				}
 				if content, ok := store.ReadSidecar(t.LastRunID); ok {
 					if code, has := store.SidecarExitCode(content); has {
@@ -567,20 +590,15 @@ func taskShowCmd() *cobra.Command {
 	return c
 }
 
-// isTrivialVerify reports whether a gate command is a phantom that proves
-// nothing: `true`, `:` (bash noop), `false`, or any `echo ...` (prints static
-// text and exits 0). An empty command is NOT trivial here — manual tasks may
-// legitimately have no gate, and that path stays a warning, not a hard reject.
+// isTrivialVerify reports whether a gate command is an exact phantom that
+// proves nothing: `true`, `false`, or `:` (bash noop). We deliberately do NOT
+// try to shell-lint (e.g. reject `echo` chains) — that is brittle and produces
+// false positives like `echo building && go test`. An empty command is NOT
+// trivial here: manual tasks may legitimately have no gate, and that path
+// stays a warning, not a hard reject.
 func isTrivialVerify(cmd string) bool {
-	t := strings.TrimSpace(cmd)
-	if t == "" {
-		return false
-	}
-	switch t {
-	case "true", ":", "false", "echo":
-		return true
-	}
-	if strings.HasPrefix(t, "echo ") {
+	switch strings.TrimSpace(cmd) {
+	case "true", "false", ":":
 		return true
 	}
 	return false
