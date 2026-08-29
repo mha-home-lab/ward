@@ -140,6 +140,26 @@ func (s *Store) migrate() error {
 	// evidence column to migrate, so historical runs are never branded "legacy"
 	// or downgraded — the disk is the single source of truth for evidence.
 	_, err := s.DB.Exec("PRAGMA user_version = 7")
+	if err != nil {
+		return err
+	}
+	// v8 (context-reload / mid-task checkpoint): a checkpoint is authored,
+	// mid-session state that does NOT exist on disk — it is the agent's explicit
+	// "here's what I've learned, let me shed the raw exploration" note. That is a
+	// different thing from run evidence (which is disk-derived); a table is the
+	// correct home here, not a file.
+	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS checkpoints (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		task_id    TEXT NOT NULL,
+		seq        INTEGER NOT NULL,
+		summary    TEXT NOT NULL,
+		verify_cmd TEXT,
+		exit_code  INTEGER,
+		at         TEXT NOT NULL
+	)`); err != nil {
+		return err
+	}
+	_, err = s.DB.Exec("PRAGMA user_version = 8")
 	return err
 }
 

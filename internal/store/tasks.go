@@ -417,3 +417,105 @@ func (s *Store) StaleClaims(mins int) ([]Task, error) {
 	}
 	return out, nil
 }
+
+// Checkpoint is a mid-task, agent-authored offload: "here is what I have learned
+// so far, treat it as provisionally trustworthy, and let me discard the raw
+// exploration that produced it." It does not close the task — it is a sanctioned
+// compaction point for a task that is long *within itself*. Stored (not derived
+// from disk) because it is new authored state, distinct from run evidence.
+type Checkpoint struct {
+	ID        int
+	TaskID    string
+	Seq       int
+	Summary   string
+	VerifyCmd string
+	ExitCode  int
+	At        string
+}
+
+// AddCheckpoint records one checkpoint for a task, assigning a monotonically
+// increasing seq per task so reload can show ordering.
+func (s *Store) AddCheckpoint(taskID, summary, verifyCmd string, exitCode int) (*Checkpoint, error) {
+	seq := 0
+	if rows, err := s.DB.Query(`SELECT COALESCE(MAX(seq),0) FROM checkpoints WHERE task_id=?`, taskID); err == nil {
+		if rows.Next() {
+			_ = rows.Scan(&seq)
+		}
+		rows.Close()
+	}
+	seq++
+	at := nowISO()
+	res, err := s.DB.Exec(`INSERT INTO checkpoints(task_id, seq, summary, verify_cmd, exit_code, at)
+		VALUES(?,?,?,?,?,?)`, taskID, seq, summary, verifyCmd, exitCode, at)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return &Checkpoint{ID: int(id), TaskID: taskID, Seq: seq, Summary: summary,
+		VerifyCmd: verifyCmd, ExitCode: exitCode, At: at}, nil
+}
+
+// ListCheckpoints returns a task's checkpoints in seq order.
+func (s *Store) ListCheckpoints(taskID string) ([]Checkpoint, error) {
+	rows, err := s.DB.Query(`SELECT id, seq, summary, verify_cmd, exit_code, at
+		FROM checkpoints WHERE task_id=? ORDER BY seq ASC`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Checkpoint
+	for rows.Next() {
+		var c Checkpoint
+		var vc sql.NullString
+		if err := rows.Scan(&c.ID, &c.Seq, &c.Summary, &vc, &c.ExitCode, &c.At); err != nil {
+			return nil, err
+		}
+		c.VerifyCmd, c.TaskID = nullStr(vc), taskID
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// LatestCheckpoint returns the highest-seq checkpoint for a task, or nil if none.
+func (s *Store) LatestCheckpoint(taskID string) (*Checkpoint, error) {
+	all, err := s.ListCheckpoints(taskID)
+	if err != nil {
+		return nil, err
+	}
+	if len(all) == 0 {
+		return nil, nil
+	}
+	c := all[len(all)-1]
+	return &c, nil
+}
+
+// ContextForTask returns prior knowledge scoped to a task's tags — the reload
+// primitive made mechanical. It ORs the task's tags through the existing
+// tag-scoped artifact search (no new free-text engine); duplicates are collapsed.
+func (s *Store) ContextForTask(tags []string, limit int) ([]Artifact, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	if len(tags) == 0 {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	out := make([]Artifact, 0, limit)
+	for _, tag := range tags {
+		hits, err := s.SearchArtifactsTagged("", "", "", tag, limit)
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range hits {
+			if seen[a.ID] {
+				continue
+			}
+			seen[a.ID] = true
+			out = append(out, a)
+			if len(out) >= limit {
+				return out, nil
+			}
+		}
+	}
+	return out, nil
+}

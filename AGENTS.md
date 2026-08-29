@@ -56,7 +56,16 @@ never re-solve solved problems and never trust stale claims.
     the gate poll GitHub Actions so the task only closes when GitHub is green:
         gh pr checks "$PR_URL" --watch --interval 10s && echo 'CI PASSED'
     The verify command must be runnable by the engine, not a promise you made.
-5. EXCLUSIVE WORK: before touching a shared topic outside the pool (file,
+ 4d. MECHANICAL RELOAD + CHECKPOINT: reload is not a memory exercise — `ward task
+    next`/`ward task run` print scoped prior knowledge (from `memory context`,
+    keyed to the task's tags) and the latest checkpoint automatically. Trust that
+    output; do not re-derive from scratch. For a task long *within itself*, offload
+    progress with `ward task checkpoint <id> '<summary>' [--verify CMD]` before a
+    new sub-goal (or every ~N tool calls). A checkpoint is a sanctioned compaction
+    point — it records what you learned so you can shed the raw exploration; it
+    does NOT close the task. This is the rule you can follow deterministically
+    (not "compact when you feel full", which is unenforceable).
+ 5. EXCLUSIVE WORK: before touching a shared topic outside the pool (file,
    migration, release), run: ward memory claim add <topic> --ttl 60
    A conflict is a hard stop: pick different work, never proceed in parallel.
 6. RECORDING RESULTS IS AUTOMATIC: successful runs capture store-local

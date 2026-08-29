@@ -3,6 +3,38 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## Unreleased — context management (mechanical reload + mid-task checkpoint)
+
+Closes the gap the consulting review named: reload was 100% protocol-trust
+(`ward brief` had to be remembered every time) and there was no mid-task
+offload (`capture` only fires at task close). Built from the two feedback
+files; the unverifiable parts they suggested (token-% `context status`,
+natural-language `context query`) were deliberately rejected.
+
+### Added
+
+- **Mechanical scoped reload**: `ward task next` and `ward task run` now print,
+  non-optionally, prior knowledge scoped to the task's tags (via `memory
+  context`) and the latest checkpoint. Reload is structural, not agent
+  discipline. `task run --json` carries `prior_knowledge` + `latest_checkpoint`.
+- **`ward task checkpoint <id> "<summary>" [--verify CMD]`**: a mid-task
+  offload that records a partial capture WITHOUT closing the task — the
+  sanctioned compaction point for a task long *within itself*. The optional
+  `--verify` is executed and its exit code stored, but it never gates (a
+  checkpoint is a progress note, not a gate). Shown in `ward task show`
+  (text + JSON) and fed back into the next reload.
+- `checkpoints` table (v8 migration) — authored mid-session state; distinct
+  from run evidence, which stays disk-derived.
+- AGENTS.md 4d: mechanical reload + checkpoint rule (deterministic, not
+  "compact when you feel full").
+
+### Rejected (from the reviews, intentionally)
+
+- `ward context status` (token-% of the LLM window): Ward cannot see the
+  context window; a fabricated percentage is ceremony without act.
+- Natural-language `ward context query`: unverifiable retrieval; the existing
+  FTS + tag selector already covers targeted lookup.
+
 ## [v0.8.0] — 2026-08-29
 
 Consolidation release: zero new subsystems. Release engineering, command-

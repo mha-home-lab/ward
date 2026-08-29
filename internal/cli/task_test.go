@@ -10,6 +10,7 @@ import (
 
 	"github.com/mha-home-lab/ward/internal/orchestration"
 	"github.com/mha-home-lab/ward/internal/store"
+	"github.com/spf13/cobra"
 )
 
 func TestTaskBrokerFlow(t *testing.T) {
@@ -700,5 +701,113 @@ func TestTaskDoneForceClosed(t *testing.T) {
 	got, _ := s2.GetTask(id)
 	if got.Status != "force-closed" {
 		t.Fatalf("forced close must record status 'force-closed', got %s", got.Status)
+	}
+}
+
+// execCapture runs a cobra command capturing both stdout and stderr into one
+// string (printLine writes stdout; warnings write stderr).
+func execCapture(t *testing.T, c *cobra.Command, args ...string) (string, error) {
+	t.Helper()
+	r, w, _ := os.Pipe()
+	oldOut, oldErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = w, w
+	c.SetArgs(args)
+	err := c.Execute()
+	w.Close()
+	os.Stdout, os.Stderr = oldOut, oldErr
+	out, _ := io.ReadAll(r)
+	return string(out), err
+}
+
+// TestTaskNextInjectsScopedContext confirms reload is mechanical: `task next`
+// prints scoped prior knowledge for the task's tags without the agent asking for
+// it (the code-confirmed gap from the context-management review).
+func TestTaskNextInjectsScopedContext(t *testing.T) {
+	t.Setenv("WARD_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+
+	s, err := store.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertArtifact(store.Artifact{
+		Kind: "note", Summary: "login uses OAuth2 PKCE flow", Content: "x",
+		Tags: []string{"auth"}, Status: "accepted", CreatedBy: "test",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.DB.Close()
+
+	execCmd(taskAddCmd(), t, []string{"fix login redirect"}, map[string]string{"tier": "mid", "tags": "auth"})
+
+	next := taskNextCmd()
+	out, err := execCapture(t, next, "--by", "agent-x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Prior knowledge") {
+		t.Fatalf("task next must mechanically inject scoped context:\n%s", out)
+	}
+	if !strings.Contains(out, "OAuth2 PKCE") {
+		t.Fatalf("scoped context must surface the auth artifact:\n%s", out)
+	}
+}
+
+// TestTaskCheckpointAndShow verifies the mid-task offload primitive: a
+// checkpoint is recorded without closing the task, reappears in `task show`,
+// and an optional --verify is executed and its exit code stored (warn, not gate).
+func TestTaskCheckpointAndShow(t *testing.T) {
+	t.Setenv("WARD_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+
+	execCmd(taskAddCmd(), t, []string{"hard task"}, map[string]string{"tier": "mid", "tags": "auth"})
+	next := taskNextCmd()
+	if err := next.Flags().Set("by", "agent-x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := next.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := store.Open()
+	ts, _ := s.ListTasks("claimed", 1)
+	if len(ts) != 1 {
+		t.Fatalf("expected one claimed task, got %d", len(ts))
+	}
+	id := ts[0].ID
+	s.DB.Close()
+
+	// Checkpoint with a real verify command (go version exits 0).
+	cp := taskCheckpointCmd()
+	cpOut, err := execCapture(t, cp, id, "OAuth2 PKCE confirmed", "--verify", "go version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cpOut, "checkpoint 1 recorded") {
+		t.Fatalf("checkpoint must be recorded:\n%s", cpOut)
+	}
+
+	// task show (text) must list the checkpoint; (json) must carry it.
+	show := taskShowCmd()
+	showText, err := execCapture(t, show, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(showText, "Checkpoints") || !strings.Contains(showText, "OAuth2 PKCE confirmed") {
+		t.Fatalf("task show must display the checkpoint:\n%s", showText)
+	}
+	if !strings.Contains(showText, "exit 0") {
+		t.Fatalf("checkpoint --verify exit code must be recorded:\n%s", showText)
+	}
+
+	showJSON := taskShowCmd()
+	oldJSON := jsonOut
+	jsonOut = true
+	js, err := execCapture(t, showJSON, id)
+	jsonOut = oldJSON
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(js, "checkpoints") || !strings.Contains(js, "OAuth2 PKCE confirmed") {
+		t.Fatalf("task show --json must include checkpoints:\n%s", js)
 	}
 }

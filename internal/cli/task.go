@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/mha-home-lab/ward/internal/orchestration"
@@ -18,7 +19,7 @@ import (
 // more capable agent; past strong it is rejected for a human, never looped.
 func taskCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "task", Short: "claimable work items: add/next/run/take/drop/list/done/fail/show/workflow"}
-	cmd.AddCommand(taskAddCmd(), taskNextCmd(), taskRunCmd(), taskTakeCmd(), taskDropCmd(), taskListCmd(), taskDoneCmd(), taskFailCmd(), taskShowCmd(), taskWorkflowCmd())
+	cmd.AddCommand(taskAddCmd(), taskNextCmd(), taskRunCmd(), taskTakeCmd(), taskDropCmd(), taskListCmd(), taskDoneCmd(), taskFailCmd(), taskShowCmd(), taskWorkflowCmd(), taskCheckpointCmd())
 	return cmd
 }
 
@@ -189,6 +190,10 @@ func taskNextCmd() *cobra.Command {
 				// ran the check before the work existed burned their whole
 				// escalation budget on trivially-failing gates.
 				printLine("implement the title FIRST, then prove it: ward task run " + t.ID)
+				// Mechanical reload: prior knowledge scoped to this task's tags,
+				// plus the latest checkpoint — no agent-discipline required.
+				printScopedContext(s, t.Tags)
+				printLatestCheckpoint(s, t.ID)
 			}
 			return nil
 		},
@@ -230,6 +235,14 @@ func taskRunCmd() *cobra.Command {
 				return failErr(fmt.Errorf("task %s is %s, not executable", t.ID, t.Status))
 			}
 
+			// Mechanical reload: surface scoped prior knowledge + the latest
+			// checkpoint before the work begins, so the agent can't silently
+			// re-derive from scratch three tasks deep.
+			if !jsonOut {
+				printScopedContext(s, t.Tags)
+				printLatestCheckpoint(s, t.ID)
+			}
+
 			path := "workflows/task-" + strings.TrimPrefix(t.ID, "task-") + ".yaml"
 			wf := orchestration.TaskWorkflow(t.ID, t.Title, t.Kind, t.Run, t.VerifyCmd, t.Tags)
 			if err := wf.Save(path); err != nil {
@@ -254,6 +267,16 @@ func taskRunCmd() *cobra.Command {
 			}
 
 			out := map[string]string{"task": t.ID, "run": runID, "run_status": r.Status}
+			if hits, herr := s.ContextForTask(t.Tags, 5); herr == nil && len(hits) > 0 {
+				kk := make([]map[string]string, 0, len(hits))
+				for _, a := range hits {
+					kk = append(kk, map[string]string{"id": a.ID, "kind": a.Kind, "summary": a.Summary, "verify": a.VerifyStatus})
+				}
+				out["prior_knowledge"] = fmt.Sprintf("%d artifact(s)", len(kk))
+			}
+			if cp, cerr := s.LatestCheckpoint(t.ID); cerr == nil && cp != nil {
+				out["latest_checkpoint"] = fmt.Sprintf("seq %d: %s", cp.Seq, cp.Summary)
+			}
 			switch r.Status {
 			case "completed":
 				// Pre-close gate (transparency patch): a task that declared a
@@ -511,6 +534,41 @@ func printTask(t store.Task) {
 	printLine(line)
 }
 
+// printScopedContext mechanically injects prior knowledge scoped to the task's
+// tags — the reload the protocol used to ask the agent to remember by hand.
+func printScopedContext(s *store.Store, tags []string) {
+	hits, err := s.ContextForTask(tags, 5)
+	if err != nil {
+		return
+	}
+	tagStr := strings.Join(tags, ", ")
+	if tagStr == "" {
+		tagStr = "(none)"
+	}
+	printLine("Prior knowledge (scoped to tags: " + tagStr + "):")
+	if len(hits) == 0 {
+		printLine("  (none)")
+		return
+	}
+	for _, a := range hits {
+		printLine(fmt.Sprintf("  - [%s] %s (%s)", a.Kind, a.Summary, a.VerifyStatus))
+	}
+}
+
+// printLatestCheckpoint surfaces the most recent mid-task offload so the agent
+// can trust what it already learned and shed raw exploration.
+func printLatestCheckpoint(s *store.Store, taskID string) {
+	cp, err := s.LatestCheckpoint(taskID)
+	if err != nil || cp == nil {
+		return
+	}
+	printLine(fmt.Sprintf("Latest checkpoint (seq %d):", cp.Seq))
+	printLine("  " + cp.Summary)
+	if cp.VerifyCmd != "" {
+		printLine(fmt.Sprintf("  verify: %s -> exit %d", cp.VerifyCmd, cp.ExitCode))
+	}
+}
+
 // taskShowCmd is the audit window: it surfaces a task's metadata and the
 // evidence of its most recent run (exit code + last 15 lines of the sidecar
 // log) so a human or agent can SEE what ran and why — no prying into the binary
@@ -559,6 +617,19 @@ func taskShowCmd() *cobra.Command {
 						out["log_tail"] = store.Tail(content, 15)
 					}
 				}
+				if cps, cerr := s.ListCheckpoints(t.ID); cerr == nil && len(cps) > 0 {
+					jc := make([]map[string]any, 0, len(cps))
+					for _, c := range cps {
+						jc = append(jc, map[string]any{
+							"seq":        c.Seq,
+							"summary":    c.Summary,
+							"verify_cmd": c.VerifyCmd,
+							"exit_code":  c.ExitCode,
+							"at":         c.At,
+						})
+					}
+					out["checkpoints"] = jc
+				}
 				printJSON(out)
 				return nil
 			}
@@ -576,6 +647,17 @@ func taskShowCmd() *cobra.Command {
 			printLine(fmt.Sprintf("Run: %s", orDefault(t.Run, "(none)")))
 			printLine(fmt.Sprintf("Verify Cmd: %s", orDefault(t.VerifyCmd, "(none)")))
 			printLine(fmt.Sprintf("Last Run: %s", orDefault(t.LastRunID, "(none)")))
+			if cps, cerr := s.ListCheckpoints(t.ID); cerr == nil && len(cps) > 0 {
+				printLine("")
+				printLine(fmt.Sprintf("--- Checkpoints (%d) ---", len(cps)))
+				for _, c := range cps {
+					if c.VerifyCmd != "" {
+						printLine(fmt.Sprintf("[%d] %s  (verify: %s -> exit %d, %s)", c.Seq, c.Summary, c.VerifyCmd, c.ExitCode, c.At))
+					} else {
+						printLine(fmt.Sprintf("[%d] %s  (%s)", c.Seq, c.Summary, c.At))
+					}
+				}
+			}
 			if t.LastRunID == "" {
 				return nil
 			}
@@ -618,6 +700,91 @@ func isTrivialVerify(cmd string) bool {
 		return true
 	}
 	return false
+}
+
+// runVerify runs an external command and returns its exit code. Used by
+// `task checkpoint --verify`: the result is recorded as a progress note, not a
+// gate (a non-zero exit warns but does not block the checkpoint).
+func runVerify(command string) (int, error) {
+	cmd := exec.Command("sh", "-c", command)
+	if err := cmd.Run(); err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			return ee.ExitCode(), nil
+		}
+		return -1, err
+	}
+	return 0, nil
+}
+
+// taskCheckpointCmd records a mid-task offload — a partial, agent-authored
+// capture that does NOT close the task. It is the sanctioned compaction point for
+// a task that is long *within itself*: "here's what I've learned, let me shed
+// the raw exploration." The optional --verify command is executed and its exit
+// code stored, but it never gates (the checkpoint is a note, not a gate).
+func taskCheckpointCmd() *cobra.Command {
+	var verify string
+	c := &cobra.Command{
+		Use:   "checkpoint <id> <summary>",
+		Short: "record a mid-task offload (partial capture) without closing the task",
+		Example: `  ward task checkpoint task-1a2b "OAuth2 PKCE flow confirmed; redirect uses a state param"
+  ward task checkpoint task-1a2b "wired refresh-token path" --verify "go test ./pkg/login/..."`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) < 2 {
+				return failErr(fmt.Errorf("usage: ward task checkpoint <id> <summary>"))
+			}
+			id := args[0]
+			summary := strings.Join(args[1:], " ")
+			s, err := store.Open()
+			if err != nil {
+				return failErr(err)
+			}
+			defer s.DB.Close()
+			t, err := s.GetTask(id)
+			if err != nil {
+				return failErr(err)
+			}
+			if t.Status != "claimed" {
+				return failErr(fmt.Errorf("task %s is %s, not claimed — checkpoints are for in-progress work (ward task next first)", id, t.Status))
+			}
+			exitCode := 0
+			if verify != "" {
+				if isTrivialVerify(verify) {
+					return failErr(fmt.Errorf("checkpoint --verify %q is a phantom (no-op); it must exercise real work", verify))
+				}
+				code, rerr := runVerify(verify)
+				if rerr != nil {
+					return failErr(rerr)
+				}
+				exitCode = code
+				if exitCode != 0 {
+					fmt.Fprintln(os.Stderr, "warning: checkpoint --verify exited", exitCode, "(recorded; a checkpoint is a progress note, not a gate)")
+				}
+			}
+			cp, err := s.AddCheckpoint(id, summary, verify, exitCode)
+			if err != nil {
+				return failErr(err)
+			}
+			if jsonOut {
+				printJSON(map[string]any{
+					"id":             id,
+					"checkpoint_seq": cp.Seq,
+					"summary":        summary,
+					"verify_cmd":     verify,
+					"exit_code":      exitCode,
+				})
+			} else {
+				printLine(fmt.Sprintf("checkpoint %d recorded for %s (task stays claimed)", cp.Seq, id))
+				printLine("  " + summary)
+				if verify != "" {
+					printLine(fmt.Sprintf("  verify: %s -> exit %d", verify, exitCode))
+				}
+				printLine("resume with: ward task run " + id)
+			}
+			return nil
+		},
+	}
+	c.Flags().StringVar(&verify, "verify", "", "optional command proving the checkpoint's claim (recorded, not gating)")
+	return c
 }
 
 // gateEvidence enforces the pre-close rule: a task that declared a gate may only
