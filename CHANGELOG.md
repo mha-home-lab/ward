@@ -3,6 +3,30 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## [v0.9.3] — 2026-08-29 — close the routing≠knowing gap (verified evidence injection)
+
+Evaluated an external battlefield review (openai.md P1#8 + claude context review):
+Ward's verified memory changed ROUTING but not what the worker KNEW — a `cheap`
+node still received only the original prompt and re-solved the already-verified
+problem. Thesis "never re-solve a solved problem" now holds at the knowledge layer.
+
+### Added
+
+- **Verified-artifact evidence injection**: a prompt node with a live-verified
+  memory hit receives a delimited `VERIFIED PRIOR CONTEXT` block (id + summary +
+  content) appended to its prompt before the adapter runs, so the (cheap) worker
+  extends a known solution instead of re-deriving it. The block is OPTIONAL,
+  clearly labeled evidence (not auto-applied prior output), respecting the
+  anchoring/injection risk flagged in the review.
+- **Trust-boundary-preserving**: only store-`Local` artifacts are injected;
+  imported (non-local) artifacts remain routing signals only — same guard as
+  `verify.Run`. `buildEvidenceBlock` skips non-local content.
+- Regression tests: `TestEngineEvidenceInjectedOnMemoryHit` (end-to-end, adapter
+  probe captures the prompt) and `TestBuildEvidenceBlockSkipsNonLocal` (trust
+  boundary).
+- `.spec/evidence-injection.md` records the evaluation and the deliberately
+  rejected parts (blind auto-apply, token-% budgeting, NL `context query`).
+
 ## [v0.9.2] — 2026-08-29 — UX gaps from real use (doc-claims + two fixes)
 
 Feedback from running v0.9.1 surfaced three gaps; all three closed without new

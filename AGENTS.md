@@ -96,3 +96,9 @@ fix the cause; never bypass the store or the trust boundary.
 - Router purity is load-bearing: `internal/routing.Route` must stay pure (no
   I/O, no model calls). Execution lives in `internal/adapter`.
 - The trust boundary (`Local` flag) gates verify_cmd execution. Never weaken it.
+- RELEASE PROCEDURE (always, after any merged change): build the binary and
+  update the global agent binary at `/usr/local/bin/ward` (not just `$GOPATH/bin`),
+  bump the version with a new `vX.Y.Z` git tag, update `CHANGELOG.md`, commit with
+  the `Review:` trailer (protocol §9), then `git push` AND `git push --tags`. The
+  version stamp comes from `git describe --tags`, so tag BEFORE building. Every
+  released change must be live for all agents via the global binary.

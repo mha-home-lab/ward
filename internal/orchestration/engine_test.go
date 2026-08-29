@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mha-home-lab/ward/internal/adapter"
 	"github.com/mha-home-lab/ward/internal/store"
 )
 
@@ -260,5 +261,74 @@ func TestEngineRunFailureEscalates(t *testing.T) {
 		if n.Node == "work" && n.Status == "done" {
 			t.Fatalf("failed node must NOT be marked done")
 		}
+	}
+}
+
+// TestBuildEvidenceBlockSkipsNonLocal proves the trust boundary: only store-local
+// verified artifacts have their content injected as worker evidence. Imported
+// (non-local) artifacts are routing signals only and must never reach the worker.
+func TestBuildEvidenceBlockSkipsNonLocal(t *testing.T) {
+	got := buildEvidenceBlock([]store.Artifact{
+		{ID: "local1", Summary: "local solution", Content: "do X then Y", Local: true},
+		{ID: "imp1", Summary: "imported solution", Content: "secret injected", Local: false},
+	})
+	if !strings.Contains(got, "local1") || !strings.Contains(got, "do X then Y") {
+		t.Fatalf("local artifact must be injected, got %q", got)
+	}
+	if strings.Contains(got, "imp1") || strings.Contains(got, "secret injected") {
+		t.Fatalf("non-local artifact must NOT be injected, got %q", got)
+	}
+	if !strings.Contains(got, "VERIFIED PRIOR CONTEXT") {
+		t.Fatalf("block must be labeled, got %q", got)
+	}
+	if buildEvidenceBlock(nil) != "" {
+		t.Fatal("empty input must yield empty block")
+	}
+}
+
+// TestEngineEvidenceInjectedOnMemoryHit proves the routing≠knowing gap is closed
+// end-to-end: a prompt node with a live-verified memory hit receives the verified
+// artifact as appended evidence in the prompt handed to the adapter (the worker),
+// not just a routing signal. The adapter binary is swapped for a probe that records
+// its final argument (the prompt).
+func TestEngineEvidenceInjectedOnMemoryHit(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "spec.md"), []byte("OIDC login spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	eng, closeFn := newTestEngine(t, repo)
+	defer closeFn()
+
+	// A verified local prior solution for node "impl".
+	eng.Seed("impl", "test", "solution", "OIDC login flow", "OIDC::spec.md", "grep")
+
+	// Probe adapter: record the final arg (the prompt) to a file.
+	capture := filepath.Join(t.TempDir(), "prompt.txt")
+	probe := filepath.Join(t.TempDir(), "probe.sh")
+	script := "#!/bin/sh\nlast=\"\"; for a in \"$@\"; do last=\"$a\"; done; printf '%s' \"$last\" > " + capture + "\n"
+	if err := os.WriteFile(probe, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldBin := adapter.Binary
+	adapter.Binary = probe
+	defer func() { adapter.Binary = oldBin }()
+
+	wf := &Workflow{
+		Name:  "ev-wf",
+		Nodes: []Node{{ID: "request", Kind: "channel"}, {ID: "impl", Kind: "test", Prompt: "Implement the login."}, {ID: "complete", Kind: "channel"}},
+		Edges: []Edge{{From: "request", To: "impl"}, {From: "impl", To: "complete"}},
+	}
+	if _, err := eng.StartWorkflow(wf); err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatalf("adapter was not invoked with a prompt: %v", err)
+	}
+	if !strings.Contains(string(prompt), "Implement the login.") {
+		t.Fatalf("original prompt must survive, got %q", prompt)
+	}
+	if !strings.Contains(string(prompt), "VERIFIED PRIOR CONTEXT") || !strings.Contains(string(prompt), "OIDC login flow") {
+		t.Fatalf("verified evidence must be injected into the worker prompt, got %q", prompt)
 	}
 }

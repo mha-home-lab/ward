@@ -140,12 +140,16 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 	node := nm[nodeID]
 
 	esc := escal[nodeID]
-	hit, verify, verifiedIDs := e.memoryHitForNode(node)
+	hit, verify, verified := e.memoryHitForNode(node)
 	contention, overlaps := e.contentionForNode(wf, node, done)
 	dec := routing.Route(routing.Inputs{
 		NodeKind: node.Kind, MemoryHit: hit, Verify: verify, Contention: contention,
 		Escalation: esc, DeclaredTier: node.Tier,
 	})
+	verifiedIDs := make([]string, 0, len(verified))
+	for _, a := range verified {
+		verifiedIDs = append(verifiedIDs, a.ID)
+	}
 	ctxJSON, _ := json.Marshal(verifiedIDs)
 	if dec.Reject {
 		// Escalation budget exhausted: do not mark done. The run is rejected /
@@ -208,7 +212,11 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 	// command, execute it against the repo. Either can fail -> escalate, never
 	// silently succeed. The routing/verify logic above is untouched.
 	if node.Prompt != "" {
-		out, merr := adapter.Run(e.repo(), adapter.ModelForTier(string(dec.Tier)), node.Prompt)
+		// Close the routing≠knowing gap: a node with a live-verified memory
+		// hit receives the verified artifact as structured evidence, so the
+		// (cheap) worker extends a known solution instead of re-deriving it.
+		prompt := node.Prompt + buildEvidenceBlock(verified)
+		out, merr := adapter.Run(e.repo(), adapter.ModelForTier(string(dec.Tier)), prompt)
 		detail := "model ok"
 		if merr != nil {
 			detail = "model failed: " + merr.Error()
@@ -432,7 +440,7 @@ func contextIDsOf(ctxJSON string) []string {
 // eligibility filter is unchanged either way: exact node-id tag or shared
 // topic tag, accepted status, LIVE-verified before any vote. Route purity is
 // untouched: this is engine-side signal gathering.
-func (e *Engine) memoryHitForNode(node Node) (bool, string, []string) {
+func (e *Engine) memoryHitForNode(node Node) (bool, string, []store.Artifact) {
 	cands := map[string]store.Artifact{}
 	for _, tag := range append([]string{node.ID}, node.Tags...) {
 		if tag == "" {
@@ -466,7 +474,7 @@ func (e *Engine) memoryHitForNode(node Node) (bool, string, []string) {
 		return false
 	}
 	bestStatus := ""
-	var verifiedIDs []string
+	var verified []store.Artifact
 	for _, a := range cands {
 		if a.Status != "accepted" {
 			continue
@@ -482,21 +490,47 @@ func (e *Engine) memoryHitForNode(node Node) (bool, string, []string) {
 		// wrong admission now (state-machine writes elsewhere are checked).
 		_ = e.Store.SetVerify(a.ID, res.Status)
 		if res.Status == "verified" {
-			verifiedIDs = append(verifiedIDs, a.ID)
+			verified = append(verified, a)
 			continue
 		}
 		bestStatus = res.Status
 	}
-	if len(verifiedIDs) > 0 {
-		// A verified prior solution exists: it is the ONLY context carried into
-		// the (re-)attempt. Failed-attempt prose is never persisted as context.
-		return true, "verified", verifiedIDs
+	if len(verified) > 0 {
+		// A verified prior solution exists: it is carried into the (re-)attempt
+		// as evidence (see buildEvidenceBlock) so the worker extends rather than
+		// re-solves. Failed-attempt prose is never persisted as context.
+		return true, "verified", verified
 	}
 	if bestStatus != "" {
 		// accepted but not currently verified: a hit, but it cannot vote cheap.
 		return true, bestStatus, nil
 	}
 	return false, "unknown", nil
+}
+
+// buildEvidenceBlock renders verified prior solutions as a delimited evidence
+// block for a prompt node. Only store-LOCAL artifacts have their content
+// injected (trust boundary: imported artifacts are routing signals only, never
+// handed to the worker). Returns "" when there is nothing to inject, so nodes
+// without a live-verified hit are untouched. This is the "memory === knowing"
+// half of the thesis: a cheap agent receives the known solution as AVAILABLE
+// evidence, clearly labeled, and still decides whether to use it.
+func buildEvidenceBlock(verified []store.Artifact) string {
+	var b strings.Builder
+	for _, a := range verified {
+		if !a.Local {
+			continue
+		}
+		if b.Len() == 0 {
+			b.WriteString("\n\n--- VERIFIED PRIOR CONTEXT (ward memory hit: do not re-solve; extend if needed) ---\n")
+		}
+		fmt.Fprintf(&b, "[%s] %s\n", a.ID, a.Summary)
+		if c := strings.TrimSpace(a.Content); c != "" {
+			b.WriteString(c)
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }
 
 // repo returns the configured repo root, defaulting to the process cwd.
