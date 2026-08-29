@@ -3,7 +3,7 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
-## Unreleased — context management (mechanical reload + mid-task checkpoint)
+## [v0.9.1] — 2026-08-29 — context management (mechanical reload + mid-task checkpoint)
 
 Closes the gap the consulting review named: reload was 100% protocol-trust
 (`ward brief` had to be remembered every time) and there was no mid-task
