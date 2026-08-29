@@ -3,11 +3,11 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
-## [v0.8.0] — 2026-08-23
+## [v0.8.0] — 2026-08-29
 
 Consolidation release: zero new subsystems. Release engineering, command-
 surface audit, adversarial tests for the fast-built surface, README as
-product.
+product. Ward is now explicitly a **solo** loop tool.
 
 ### Added
 
@@ -16,10 +16,17 @@ product.
   `BINDIR=`), `check` (full gate). Ends the hand-placed-binary era.
 - **Command-surface contract, enforced by tests**: every `--json` output is
   valid JSON on empty stores too — collections serialize `[]`, never `null`.
-  Table-driven coverage for timeline, wave, fleet, scorecard, skill pack /
-  check / sync, explain, reject, capture.
+  Table-driven coverage for timeline, wave, scorecard, skill pack / check /
+  sync, explain, reject, capture.
 - **`Example:` help lines on every subcommand**, and `-n` shorthand parity:
   any command taking `--limit` accepts `-n`.
+- **Transparency patch**: `ward task show` opens the run's sidecar log (the
+  audit window that should have shipped with `task run`); `ward task done`
+  refuses to close a gated task without sidecar evidence proving it ran and
+  exited 0; `ward task done --force` records `force-closed` (distinct from
+  `done`) so a bypass is never silent or conflated with a verified completion.
+  Sidecar evidence is **derived from `.ward/logs/` on disk** — no DB column
+  shadows it.
 - **CHANGELOG.md** (this file) distilled from the tasklog.
 
 ### Fixed
@@ -38,8 +45,16 @@ product.
   classify as bounces.
 - **`ward skill-sync --json` was a silent dry-run** while human mode synced;
   both modes now do the same work, and JSON reports what was pushed.
-- **`ward fleet` leaked `WARD_HOME` mutations** into the process; env is
-  restored after aggregation.
+
+### Retired
+
+- **`ward fleet` and `scripts/fleet-launch`** — parallel agent dispatch was
+  built, measured against solo in R12/R13, and retired: solo dominated at every
+  scale tested (solo 19.9 min vs fleet 44.7 min, quality parity), and supervising
+  parallel CLI agents cost more than it returned. Ward is now a solo loop
+  (`brief → task → tick → memory handoff`). `scripts/fleet-launch` moved to
+  `attic/fleet-launch.deprecated`; the `ward fleet` command is deprecated and
+  slated for removal once `wave` is split out of `internal/cli/fleet.go`.
 
 ## [v0.7.0] — 2026-08-23
 

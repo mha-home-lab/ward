@@ -44,9 +44,10 @@ Opt out with `--no-agents-md`. `init --scaffold` writes a runnable
   never stamps a status; verification runs live before each route.
 - **The pool** — claimable work items (`ward task …`) with tier-floor
   admission control. An agent's `--max-tier` budget is a ceiling; failure bumps
-  a task's floor one tier so stronger agents pick it up; past `strong` it stops
-  for a human with a dossier — never looped. Exclusive topic claims
-  (`memory claim add`) keep parallel agents out of each other's way.
+  a task's floor one tier so the **same agent, next session, picks it up at a
+  higher floor**; past `strong` it stops for a human with a dossier — never
+  looped. The claim mutex (`memory claim add`) keeps two resumptions of the
+  same loop from grabbing one task, but Ward does no parallel agent dispatch.
 - **Chips** — compiled views of the brain (`ward skill pack`) formatted as
   agent-loadable `SKILL.md` files. Chips are derived artifacts: regenerate,
   never hand-edit. `skill check` reports staleness when sources drift;

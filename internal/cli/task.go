@@ -379,17 +379,22 @@ func taskDoneCmd() *cobra.Command {
 			// otherwise 'done' is just a way to bypass the whole transparency
 			// guarantee. A human may override with --force, but that override is
 			// loudly logged so the bypass is never silent.
+			gateFailed := false
 			if t.Run != "" || t.VerifyCmd != "" {
 				if err := gateEvidence(t.ID, t.LastRunID); err != nil {
 					if !force {
 						return failErr(err)
 					}
+					gateFailed = true
 					fmt.Fprintln(os.Stderr, "warning: --force overriding missing/!0 verification evidence for task "+t.ID+" (human override, not audit-backed)")
 				}
 			}
-			// A forced close is recorded distinctly as 'force-closed' so the
-			// audit trail never conflates it with a verified completion.
-			if force {
+			// --force only records 'force-closed' when it actually overrode a
+			// failed/missing gate. If evidence was present and green, --force is a
+			// no-op and the task closes as a normal verified 'done' — otherwise the
+			// bypass signal would be meaningless and agents could launder real
+			// completions through it.
+			if force && gateFailed {
 				if err := s.ForceCloseTask(args[0], by); err != nil {
 					return failErr(err)
 				}
