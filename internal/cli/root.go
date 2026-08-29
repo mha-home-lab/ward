@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"strings"
 
+	"github.com/mha-home-lab/ward/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -45,6 +47,45 @@ func versionString() string {
 
 var jsonOut bool
 
+// warnIfMisplaced warns when an item that is clearly about WARD itself (tagged
+// `ward` or `portable:`) is being filed into a store that is NOT ward's own
+// store. This is the guard against the recurring failure where an agent working
+// in some project X writes a ward feature request into X's store, where ward's
+// own agents never see it. The fix is to target ward's store explicitly with
+// `--project ward` (after one-time `ward project register ward <path>`).
+func warnIfMisplaced(tags []string, project string) {
+	wardish := false
+	for _, t := range tags {
+		if t == "ward" || strings.HasPrefix(t, "portable:") {
+			wardish = true
+			break
+		}
+	}
+	if !wardish || project != "" {
+		return
+	}
+	// Already inside ward's own store? Then filing here is correct.
+	if h, ok := store.ProjectHome("ward"); ok && store.Home() == h {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "warning: this request is tagged for WARD itself but is being filed in the CURRENT project's store (not ward's). "+
+		"Ward's own agents read ward's store; file it there with `--project ward` (run `ward project register ward <path-to-ward/.ward>` once) or run from the ward repo, otherwise it will be invisible to them.")
+}
+
+// openStore resolves the store for the --project flag on cmd (or the default
+// store when none is set). The flag is read from the command, never a package
+// global, so concurrent/sequential invocations don't leak target-store state.
+
+// cliProjectFlag reads the --project target-store flag from a command.
+func cliProjectFlag(cmd *cobra.Command) string {
+	p, _ := cmd.Flags().GetString("project")
+	return p
+}
+func openStore(cmd *cobra.Command) (*store.Store, error) {
+	project, _ := cmd.Flags().GetString("project")
+	return store.OpenForName(project)
+}
+
 // Version is stamped at build time via -ldflags; default reports dev.
 var Version = "dev"
 
@@ -62,7 +103,8 @@ func NewRoot() *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.PersistentFlags().BoolVar(&jsonOut, "json", false, "emit JSON instead of human text")
-	root.AddCommand(briefCmd(), initCmd(), memoryCmd(), verifyCmd(), routeCmd(), routerCmd(), runCmd(), captureCmd(), taskCmd(), explainCmd(), rejectCmd(), doctorCmd(), workflowCmd(), tickCmd(), harvestCmd(), skillCmd(), timelineCmd(), waveCmd(), scorecardCmd(), syncCmd(), docCmd(), versionCmd())
+	root.PersistentFlags().String("project", "", "target a project store by name (registered via 'ward project register'); default = current store")
+	root.AddCommand(briefCmd(), initCmd(), memoryCmd(), verifyCmd(), routeCmd(), routerCmd(), runCmd(), captureCmd(), taskCmd(), explainCmd(), rejectCmd(), doctorCmd(), workflowCmd(), tickCmd(), harvestCmd(), skillCmd(), timelineCmd(), waveCmd(), scorecardCmd(), syncCmd(), docCmd(), projectCmd(), versionCmd())
 	return root
 }
 

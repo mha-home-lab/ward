@@ -26,30 +26,7 @@ type Store struct {
 
 // Open opens (creating if needed) the ward.db and ensures schema.
 func Open() (*Store, error) {
-	home := Home()
-	if err := os.MkdirAll(home, 0o755); err != nil {
-		return nil, err
-	}
-	path := filepath.Join(home, "ward.db")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		return nil, err
-	}
-	// Wait (rather than fail) if another `ward` process briefly holds the write
-	// lock. Without this, parallel agents racing a claim would get SQLITE_BUSY
-	// instead of the clean unique-constraint conflict the routing relies on.
-	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		return nil, err
-	}
-	s := &Store{DB: db, Home: home}
-	if err := s.Init(); err != nil {
-		return nil, err
-	}
-	return s, nil
+	return openDB(filepath.Join(Home(), "ward.db"))
 }
 
 // Init creates the base schema + FTS5 triggers, then applies additive

@@ -37,7 +37,7 @@ func briefCmd() *cobra.Command {
 			if len(args) > 0 {
 				topic = strings.Join(args, " ")
 			}
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}

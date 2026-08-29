@@ -36,7 +36,7 @@ func taskDropCmd() *cobra.Command {
 			if len(args) == 0 {
 				return failErr(errNeedID)
 			}
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -73,7 +73,7 @@ func taskTakeCmd() *cobra.Command {
 			if by == "" {
 				return failErr(fmt.Errorf("--by <agent-name> is required"))
 			}
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -108,7 +108,7 @@ func taskAddCmd() *cobra.Command {
 				return failErr(fmt.Errorf("task needs a title"))
 			}
 			title := strings.Join(args, " ")
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -131,6 +131,7 @@ func taskAddCmd() *cobra.Command {
 			case isTrivialVerify(verifyCmd):
 				return failErr(fmt.Errorf("rejected: --verify-cmd %q is a phantom gate (true/echo/: prove nothing). Provide a real acceptance check that exercises the change", verifyCmd))
 			}
+			warnIfMisplaced(splitCSV(tags), cliProjectFlag(cmd))
 			id, err := s.CreateTask(store.Task{
 				Title: title, Kind: kind, TierFloor: tier,
 				VerifyCmd: verifyCmd, Run: run, Tags: splitCSV(tags),
@@ -165,7 +166,7 @@ func taskNextCmd() *cobra.Command {
 			if by == "" {
 				return failErr(fmt.Errorf("--by <agent-name> is required (claims must be attributable)"))
 			}
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -221,7 +222,7 @@ func taskRunCmd() *cobra.Command {
 			if len(args) == 0 {
 				return failErr(errNeedID)
 			}
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -359,7 +360,7 @@ func taskListCmd() *cobra.Command {
   ward task list --status open -n 20
   ward task list --status done --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -402,7 +403,7 @@ func taskDoneCmd() *cobra.Command {
 			if len(args) == 0 {
 				return failErr(errNeedID)
 			}
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -470,7 +471,7 @@ func taskFailCmd() *cobra.Command {
 			if len(args) == 0 {
 				return failErr(errNeedID)
 			}
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -507,7 +508,7 @@ func taskWorkflowCmd() *cobra.Command {
 			if len(args) == 0 {
 				return failErr(errNeedID)
 			}
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -597,7 +598,7 @@ func taskShowCmd() *cobra.Command {
 			if len(args) == 0 {
 				return failErr(errNeedID)
 			}
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -748,7 +749,7 @@ func taskCheckpointCmd() *cobra.Command {
 			}
 			id := args[0]
 			summary := strings.Join(args[1:], " ")
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}

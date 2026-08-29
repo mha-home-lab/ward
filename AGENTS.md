@@ -102,3 +102,10 @@ fix the cause; never bypass the store or the trust boundary.
   the `Review:` trailer (protocol §9), then `git push` AND `git push --tags`. The
   version stamp comes from `git describe --tags`, so tag BEFORE building. Every
   released change must be live for all agents via the global binary.
+- CROSS-PROJECT REQUESTS (load-bearing): a feature request ABOUT ward must be filed
+  in WARD's own store, not the local project's. Run `ward project register ward
+  <path-to-ward/.ward>` once, then `ward task add --project ward ...` (or `ward
+  memory put --project ward ...`) from anywhere — the item lands in ward's store
+  where ward's agents see it. The CLI warns if a `ward`/`portable:`-tagged item is
+  filed in another project's store, because that store is invisible to ward's own
+  agents. Never leave a ward-itself request sitting in an unrelated project store.

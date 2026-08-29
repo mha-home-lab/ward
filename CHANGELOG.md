@@ -3,6 +3,31 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## [v0.9.4] — 2026-08-29 — fix: ward-itself requests filed in the wrong store (cross-project routing)
+
+A recurring coordination failure: an agent working in project X would file a
+feature request ABOUT ward into X's `.ward` store, where ward's own agents never
+see it. The battlefield auto-plan/PM request sat invisible in `dhda-workspace/.ward`
+for this reason. Fixed with explicit cross-project routing.
+
+### Added
+
+- **`ward project register <name> <path>` / `ward project list`**: a registry
+  (`~/.config/ward/projects.json`, or `WARD_PROJECT_<NAME>_HOME`) mapping a
+  logical project name to its `.ward` directory.
+- **`--project <name>` persistent flag** on every command: targets a project store
+  by name from any cwd. `ward task add --project ward ...` now lands in ward's
+  store regardless of where the agent runs. Resolved via `store.OpenForName`.
+- **Misplacement guard**: `ward task add` / `ward memory put` warn (to stderr)
+  when an item tagged `ward` or `portable:` is filed into a store that is NOT
+  ward's own — the exact confusion this release fixes. Suppressed when
+  `--project ward` is given or the agent is already in ward's store.
+- Relocated the stranded auto-plan/PM request (`dhda-workspace/.ward` →
+  ward's store as `task-e244d012`); originals marked `[RELOCATED ...]`.
+- `.spec/auto-plan.md` evaluates the PM feature (narrow: plan = populate the pool,
+  never auto-execute) and decomposes it; the relocated task's gate is now a real
+  implementation test, not a phantom `test -s` check.
+
 ## [v0.9.3] — 2026-08-29 — close the routing≠knowing gap (verified evidence injection)
 
 Evaluated an external battlefield review (openai.md P1#8 + claude context review):

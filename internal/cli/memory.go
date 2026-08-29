@@ -20,7 +20,7 @@ func initCmd() *cobra.Command {
   ward init --scaffold
   ward init --scaffold --docs --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -184,7 +184,7 @@ func memoryPutCmd() *cobra.Command {
   ward memory put --summary "deploy steps" --verify-cmd "grep -q deploy README.md" --local
   ward memory put --summary "hypothesis" --ceremony full --by rd-explorer --tags rd:checks`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -220,6 +220,7 @@ func memoryPutCmd() *cobra.Command {
 				CreatedBy: by, Project: project,
 				VerifyCmd: verifyCmd, VerifyKind: verifyKind, Local: isLocal, Ceremony: ceremony,
 			}
+			warnIfMisplaced(splitCSV(tags), cliProjectFlag(cmd))
 			id, err := s.UpsertArtifact(a)
 			if err != nil {
 				return failErr(err)
@@ -246,7 +247,7 @@ func memoryPutCmd() *cobra.Command {
 	c.Flags().StringVar(&tags, "tags", "", "comma-separated tags")
 	c.Flags().StringVar(&verifyCmd, "verify-cmd", "", "verification command")
 	c.Flags().StringVar(&verifyKind, "verify-kind", "", "shell|grep|build|test|hash")
-	c.Flags().StringVar(&project, "project", "", "project namespace")
+	c.Flags().StringVar(&project, "namespace", "", "project namespace tag stored on the artifact (distinct from --project, which selects the target store)")
 	c.Flags().StringVar(&by, "by", "agent", "creator name")
 	c.Flags().StringVar(&ceremony, "ceremony", "light", "light (auto-accept) | full")
 	c.Flags().BoolVar(&imported, "imported", false, "mark as imported (not store-local; verify not executed)")
@@ -264,7 +265,7 @@ func memoryGetCmd() *cobra.Command {
 			if len(args) == 0 {
 				return failErr(errNeedID)
 			}
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -298,7 +299,7 @@ func memorySupersedeCmd() *cobra.Command {
 			if len(args) == 0 {
 				return failErr(errNeedID)
 			}
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -335,7 +336,7 @@ func memorySearchCmd() *cobra.Command {
 			if len(args) == 0 {
 				return failErr(errNeedQuery)
 			}
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -377,7 +378,7 @@ func memoryListCmd() *cobra.Command {
   ward memory list -n 50 --status accepted
   ward memory list --kind solution --project secure-bank --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -417,7 +418,7 @@ func memoryPromoteCmd() *cobra.Command {
 			if len(args) == 0 {
 				return failErr(errNeedID)
 			}
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -449,7 +450,7 @@ func memoryHandoffCmd() *cobra.Command {
 		Example: `  ward memory handoff
   ward memory handoff --incomplete --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
@@ -521,7 +522,7 @@ func verifyCmd() *cobra.Command {
   ward verify --all
   ward verify art-1a2b --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := store.Open()
+			s, err := openStore(cmd)
 			if err != nil {
 				return failErr(err)
 			}
