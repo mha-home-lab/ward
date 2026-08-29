@@ -3,7 +3,7 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
-## Unreleased — UX gaps from real use (doc-claims + two fixes)
+## [v0.9.2] — 2026-08-29 — UX gaps from real use (doc-claims + two fixes)
 
 Feedback from running v0.9.1 surfaced three gaps; all three closed without new
 verifier logic.
