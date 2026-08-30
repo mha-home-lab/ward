@@ -277,7 +277,9 @@ func TestScorecardOutcomeAttribution(t *testing.T) {
 // the synced chip checks FRESH against its oracle store from another cwd.
 func TestSkillSyncWritesFreshChips(t *testing.T) {
 	dir := newSurfaceStore(t)
-	putLocalFact(t, dir, "wake docker before DoD gates", "docker", "portable:ops")
+	// Generalizable portable lesson (the sync gate requires transferability;
+	// a neutral one-liner without generalization language scores 0 -> skipped).
+	putLocalFact(t, dir, "the lesson is to wake the docker daemon before running DoD gates, because the pattern applies any time a test suite needs the runtime", "docker", "portable:ops")
 
 	target := filepath.Join(t.TempDir(), "skills")
 	out := jsonRun(t, syncCmd(), []string{"--dir", target})

@@ -3,6 +3,55 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## [v0.9.8] — 2026-08-30 — control-transferability lint: instance-specific cheat-sheets never reach the global vault
+
+Spec `.spec/control-transferability-lint.md` — a deterministic, regex-only
+scorer (no model call in the scoring path) that tells a **generalized mechanism
+plus why** apart from a **cheat-sheet** (verbatim error/output text, per-exercise
+file paths, bare exercise slugs), so portable knowledge carries reasoning, not
+instance trivia.
+
+### Added
+
+- **`internal/transferability`** — pure `Score(topic, summary, content)` with a
+  `LintResult{Score, CheatSheet, Signals}` shape. `Score = min(gen, 3) −
+  min(cheat, 5)`; `Score <= 0 → CheatSheet`. Generalization words
+  (`idiom`/`the pattern`/`in general`/`any time`/`whenever`/`because`/`the trap
+  is`/`the mechanism`/`the lesson`) add +1 each (capped at +3); cheat-sheet
+  signals (verbatim `prints?/outputs?/returns?` quotes, path tokens, `argv[`,
+  bare repeated exercise slugs) cost −1 each. Requirement-hard fixture cases
+  covered by unit tests.
+- **`ward skill lint <chip>`** — resolves a chip's backing sources, re-scores
+  the CURRENT artifact content, prints a portable/borderline/cheat-sheet
+  scorecard, and exits non-zero when any source is cheat-sheet-scored.
+- **Capture warning** — a `portable:*` capture that scores as a cheat-sheet
+  prints a non-fatal stderr notice. Local captures are never linted (they are
+  legitimately instance-specific).
+- **`pack --force --reason`** — auditable escape hatch: records `--reason` on
+  the artifact (`override_reason` column, migration v10) so the exception is
+  traceable, not silent.
+
+### Changed
+
+- **`ward pack` into the global skills dir / portable bundle** now hard-gates on
+  the lint: cheat-sheet sources are excluded from the bundle, and a bundle whose
+  sources all score as cheat-sheets is vetoed (never a silent empty cache).
+- **`ward skill-sync` is now a hard-gate point** (subagent reviewer finding): it
+  previously compiled every accepted `portable:*` source straight into the
+  global vault without scoring — the exact leak the lint exists to close. It now
+  scores each topic's sources, excludes cheat-sheets from every chip, and skips
+  a topic entirely when none survive. `--force --reason` gives the same logged
+  escape hatch as pack.
+- **Accurate override reporting** (subagent reviewer finding): force-included
+  cheat-sheet sources are reported as `FORCED … synced anyway (reason: …)` /
+  `force_included_with_reason`, no longer falsely labeled "not synced to the
+  global vault".
+
+### Legacy
+
+- **AGENTS.md guidance** — portable chips carry reasoning a teammate can trust
+  across projects, not a per-repo answer.
+
 ## [v0.9.7] — 2026-08-30 — review phase behind subagents: wave mal-verification, engine read-path provenance, KPI honesty, skill gate coherence
 
 The v0.9.5/v0.9.6 fixes were self-reviewed. Per protocol §9 the review phase now

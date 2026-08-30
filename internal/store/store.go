@@ -145,6 +145,17 @@ func (s *Store) migrate() error {
 		return err
 	}
 	_, err = s.DB.Exec("PRAGMA user_version = 9")
+	if err != nil {
+		return err
+	}
+	// v10 (control-transferability-lint): a pack --force override reason for a
+	// portable artifact is recorded ON the artifact so the lint gate's escape
+	// hatch stays auditable (a wall with no trace of why an exception was made
+	// is a wall that gets silently patched). Additive and nullable.
+	if err := s.addColumn("artifacts", "override_reason", "TEXT"); err != nil {
+		return err
+	}
+	_, err = s.DB.Exec("PRAGMA user_version = 10")
 	return err
 }
 
@@ -179,32 +190,33 @@ func (s *Store) addColumn(table, col, typ string) error {
 // --- types ---
 
 type Artifact struct {
-	ID            string
-	Kind          string
-	Summary       string
-	Content       string
-	Tags          []string
-	Status        string // proposed | accepted | superseded
-	CreatedBy     string
-	CreatedAt     string
-	UsedCount     int
-	LastUsed      string
-	SupersededBy  string
-	SupersededRsn string
-	SupersededAt  string
-	PromotedAt    string
-	PromotedBy    string
-	PromotedRsn   string
-	SourceSession string
-	SourceAgent   string
-	Project       string
-	ExpiresAt     string
-	VerifyCmd     string
-	VerifyKind    string // shell|grep|build|test|hash
-	VerifyStatus  string // verified|stale|error|unknown
-	VerifyAt      string
-	Ceremony      string // light|full
-	Local         bool   // trust boundary: store-local artifacts only get verify_cmd executed
+	ID             string
+	Kind           string
+	Summary        string
+	Content        string
+	Tags           []string
+	Status         string // proposed | accepted | superseded
+	CreatedBy      string
+	CreatedAt      string
+	UsedCount      int
+	LastUsed       string
+	SupersededBy   string
+	SupersededRsn  string
+	SupersededAt   string
+	PromotedAt     string
+	PromotedBy     string
+	PromotedRsn    string
+	SourceSession  string
+	SourceAgent    string
+	Project        string
+	ExpiresAt      string
+	VerifyCmd      string
+	VerifyKind     string // shell|grep|build|test|hash
+	VerifyStatus   string // verified|stale|error|unknown
+	VerifyAt       string
+	Ceremony       string // light|full
+	Local          bool   // trust boundary: store-local artifacts only get verify_cmd executed
+	OverrideReason string // pack --force --reason: why a portable lint gate was overridden
 }
 
 func parseTags(s string) []string {

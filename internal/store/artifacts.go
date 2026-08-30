@@ -148,15 +148,15 @@ func (s *Store) GetArtifact(id string) (Artifact, error) {
 	var a Artifact
 	var tags, kind, status, ca, cer string
 	var used int
-	var ssn, sag, proj, vc, vk, vs, va, supBy, supRsn, supAt, promAt, promBy, promRsn, expAt sql.NullString
+	var ssn, sag, proj, vc, vk, vs, va, supBy, supRsn, supAt, promAt, promBy, promRsn, expAt, ovr sql.NullString
 	err := s.DB.QueryRow(`SELECT id, kind, summary, content, tags, status, created_by,
 		created_at, used_count, superseded_by, superseded_reason, superseded_at,
 		promoted_at, promoted_by, promoted_reason, source_session, source_agent,
-		project, verify_cmd, verify_kind, verify_status, verify_at, ceremony_level, expires_at, local
+		project, verify_cmd, verify_kind, verify_status, verify_at, ceremony_level, expires_at, local, override_reason
 		FROM artifacts WHERE id = ?`, id).Scan(
 		&a.ID, &kind, &a.Summary, &a.Content, &tags, &status, &a.CreatedBy, &ca,
 		&used, &supBy, &supRsn, &supAt, &promAt, &promBy, &promRsn, &ssn, &sag,
-		&proj, &vc, &vk, &vs, &va, &cer, &expAt, &a.Local)
+		&proj, &vc, &vk, &vs, &va, &cer, &expAt, &a.Local, &ovr)
 	if err == sql.ErrNoRows {
 		return a, fmt.Errorf("no artifact %s", id)
 	}
@@ -171,6 +171,7 @@ func (s *Store) GetArtifact(id string) (Artifact, error) {
 	a.SourceSession, a.SourceAgent, a.Project = nullStr(ssn), nullStr(sag), nullStr(proj)
 	a.VerifyCmd, a.VerifyKind, a.VerifyStatus, a.VerifyAt = nullStr(vc), nullStr(vk), nullStr(vs), nullStr(va)
 	a.Ceremony, a.ExpiresAt = cer, nullStr(expAt)
+	a.OverrideReason = nullStr(ovr)
 	if a.VerifyStatus == "" {
 		a.VerifyStatus = "unknown"
 	}
@@ -257,6 +258,14 @@ func (s *Store) SetLocal(id string) error {
 // SetExpires sets the TTL expiry for an artifact (used by advisory claims).
 func (s *Store) SetExpires(id, expiresAt string) error {
 	_, err := s.DB.Exec(`UPDATE artifacts SET expires_at=? WHERE id=?`, expiresAt, id)
+	return err
+}
+
+// SetOverrideReason records why a portable transferability-lint gate was
+// overridden for an artifact (pack --force --reason). Stored on the artifact
+// so the exception is auditable, never silent.
+func (s *Store) SetOverrideReason(id, reason string) error {
+	_, err := s.DB.Exec(`UPDATE artifacts SET override_reason=? WHERE id=?`, reason, id)
 	return err
 }
 

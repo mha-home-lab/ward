@@ -81,7 +81,9 @@ never re-solve solved problems and never trust stale claims.
 
 PORTABLE KNOWLEDGE: accepted lessons tagged portable:<topic> are synced to
 the global skills directory by 'ward skill-sync' - load any that match your
-task before planning.
+task before planning. Chips distill hard-won lessons and reusable shapes into
+the cross-project knowledge vault. Answers to a particular problem stay with
+that problem's repo/artifacts, never in a portable chip.
 
 Every command accepts --json for machine-readable output. If a command errors,
 fix the cause; never bypass the store or the trust boundary.

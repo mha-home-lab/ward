@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mha-home-lab/ward/internal/store"
+	"github.com/mha-home-lab/ward/internal/transferability"
 	"github.com/mha-home-lab/ward/internal/verification"
 	"github.com/spf13/cobra"
 )
@@ -25,19 +26,20 @@ import (
 // promotion. Anything failing its class gate is excluded, not softened.
 func skillCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "skill", Short: "compile verified knowledge into agent skill files (chips); localize global chips into this repo"}
-	cmd.AddCommand(skillPackCmd(), skillCheckCmd(), skillInstallCmd(), skillListGlobalCmd())
+	cmd.AddCommand(skillPackCmd(), skillCheckCmd(), skillInstallCmd(), skillListGlobalCmd(), skillLintCmd())
 	return cmd
 }
 
 func skillPackCmd() *cobra.Command {
-	var out, project, tag string
-	var includeUnverified bool
+	var out, project, tag, reason string
+	var includeUnverified, force bool
 	c := &cobra.Command{
 		Use:   "pack <topic>",
 		Short: "compile accepted knowledge for a topic into .opencode/skills/<chip>/SKILL.md",
 		Example: `  ward skill pack rd:checks
   ward skill pack agent-reliability --tag portable:agent-reliability --out ~/.config/opencode/skills/ward-agent-reliability
-  ward skill pack auth --project secure-bank --json`,
+  ward skill pack auth --project secure-bank --json
+  ward skill pack portable:bash --tag portable:bash --out ~/.config/opencode/skills/ward-bash --force --reason "ship anyway"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return failErr(fmt.Errorf("pack needs a topic"))
@@ -65,6 +67,28 @@ func skillPackCmd() *cobra.Command {
 				return failErr(fmt.Errorf("no eligible knowledge for %q (need accepted+trusted artifacts)", topic))
 			}
 
+			// Transferability gate: only the portable pipeline is linted.
+			// Ordinary local captures are legitimately instance-specific and
+			// are never scored.
+			portable := strings.HasPrefix(tag, "portable:") || isGlobalSkillsOut(out)
+			var g gateOutcome
+			if portable {
+				var err error
+				if g, err = gateTransferability(s, &srcs, force, reason); err != nil {
+					return failErr(err)
+				}
+				if len(srcs) == 0 {
+					if len(g.removed) > 0 {
+						var ids []string
+						for _, a := range g.removed {
+							ids = append(ids, a.ID)
+						}
+						return failErr(fmt.Errorf("pack vetoed: portable bundle for %q would be empty — %d source(s) scored as instance-specific cheat-sheets: %s", topic, len(g.removed), strings.Join(ids, ", ")))
+					}
+					return failErr(fmt.Errorf("no eligible knowledge for %q (need accepted+trusted artifacts)", topic))
+				}
+			}
+
 			chipName := chipNameFor(topic)
 			dir := out
 			if dir == "" {
@@ -79,11 +103,39 @@ func skillPackCmd() *cobra.Command {
 				return failErr(err)
 			}
 			if jsonOut {
-				printJSON(map[string]any{"path": path, "sources": len(srcs), "topic": topic})
+				res := map[string]any{"path": path, "sources": len(srcs), "topic": topic}
+				if len(g.removed) > 0 {
+					inst := []map[string]any{}
+					for i, a := range g.removed {
+						inst = append(inst, map[string]any{"id": a.ID, "summary": a.Summary, "score": g.removedScores[i].Score, "signals": g.removedScores[i].Signals})
+					}
+					res["instance_specific"] = inst
+					res["not_synced_to_global_vault"] = len(g.removed)
+				}
+				if len(g.overridden) > 0 {
+					ovr := []map[string]any{}
+					for i, a := range g.overridden {
+						ovr = append(ovr, map[string]any{"id": a.ID, "summary": a.Summary, "score": g.overriddenScores[i].Score, "reason": reason, "signals": g.overriddenScores[i].Signals})
+					}
+					res["force_included_with_reason"] = ovr
+				}
+				printJSON(res)
 			} else {
 				printLine(fmt.Sprintf("compiled %d knowledge artifact(s) -> %s", len(srcs), path))
 				for _, a := range srcs {
 					printLine("  source: " + a.ID + " (" + a.Kind + ", verify=" + gateLabel(a) + ")")
+				}
+				for i, a := range g.removed {
+					printLine(fmt.Sprintf("  EXCLUDED %s: instance-specific, not synced to the global vault (score %d)", a.ID, g.removedScores[i].Score))
+					for _, sgn := range g.removedScores[i].Signals {
+						printLine("      - " + sgn)
+					}
+				}
+				for i, a := range g.overridden {
+					printLine(fmt.Sprintf("  FORCED %s: instance-specific cheat-sheet synced anyway (reason: %s)", a.ID, reason))
+					for _, sgn := range g.overriddenScores[i].Signals {
+						printLine("      - " + sgn)
+					}
 				}
 			}
 			return nil
@@ -92,8 +144,89 @@ func skillPackCmd() *cobra.Command {
 	c.Flags().StringVar(&out, "out", "", "output directory (default .opencode/skills/<chip>; use ~/.config/opencode/skills/<name> for a GLOBAL chip)")
 	c.Flags().StringVar(&tag, "tag", "", "exact-tag compilation (portable knowledge only; recommended for global chips)")
 	c.Flags().StringVar(&project, "project", "", "project lens filter")
+	c.Flags().StringVar(&reason, "reason", "", "required with --force: why a cheat-sheet source is being synced to the global vault anyway")
 	c.Flags().BoolVar(&includeUnverified, "include-unverified", false, "also compile trusted-class artifacts whose live verify failed or never ran (marked UNVERIFIED in the chip)")
+	c.Flags().BoolVar(&force, "force", false, "bypass the transferability lint for a portable pack (needs --reason)")
 	return c
+}
+
+// gateOutcome reports how the transferability gate split a candidate source
+// list. The two cheat-sheet groups are mutually exclusive:
+//   - removed:    cheat-sheet sources EXCLUDED from the bundle (not synced).
+//   - overridden: cheat-sheet sources force-included (--force --reason) with a
+//     recorded reason; they ARE part of the bundle and must be reported as
+//     synced, not "not synced", or the output would lie.
+type gateOutcome struct {
+	removed          []store.Artifact
+	removedScores    []transferability.LintResult
+	overridden       []store.Artifact
+	overriddenScores []transferability.LintResult
+}
+
+// gateTransferability splits the candidate sources for a portable pack. When
+// not forced, cheat-sheet-scored (instance-specific) sources are removed from
+// srcs and reported in outcome.removed, so they are visibly reported but NOT
+// synced to the global vault. When forced (--force --reason), the reason is not
+// optional, every source is kept in srcs, and the cheat-sheet ones are reported
+// in outcome.overridden with the reason recorded on each artifact so the
+// exception stays auditable.
+func gateTransferability(s *store.Store, srcs *[]store.Artifact, force bool, reason string) (gateOutcome, error) {
+	var out gateOutcome
+	if force {
+		if reason == "" {
+			return out, fmt.Errorf("--force needs --reason: an override without a logged reason is exactly the silent exception the lint gate exists to prevent")
+		}
+		for _, a := range *srcs {
+			r := transferability.Score(a.Summary, a.Summary, a.Content)
+			if r.CheatSheet {
+				if err := s.SetOverrideReason(a.ID, reason); err != nil {
+					return out, err
+				}
+				out.overridden = append(out.overridden, a)
+				out.overriddenScores = append(out.overriddenScores, r)
+			}
+		}
+		return out, nil
+	}
+	kept := (*srcs)[:0]
+	for _, a := range *srcs {
+		r := transferability.Score(a.Summary, a.Summary, a.Content)
+		if r.CheatSheet {
+			out.removed = append(out.removed, a)
+			out.removedScores = append(out.removedScores, r)
+			continue
+		}
+		kept = append(kept, a)
+	}
+	*srcs = kept
+	return out, nil
+}
+
+// isGlobalSkillsOut reports whether an --out directory targets the global
+// skills vault (~/.config/opencode/skills/...), the point where knowledge
+// actually leaves the repo boundary and the transportability gate must fire.
+func isGlobalSkillsOut(out string) bool {
+	if out == "" {
+		return false
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	global := filepath.Join(home, ".config", "opencode", "skills")
+	absOut := out
+	if !filepath.IsAbs(absOut) {
+		abs, aerr := filepath.Abs(out)
+		if aerr != nil {
+			return false
+		}
+		absOut = abs
+	}
+	rel, err := filepath.Rel(global, absOut)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // skillCheckCmd reports whether a previously emitted chip is stale: any source
@@ -181,6 +314,163 @@ func skillCheckCmd() *cobra.Command {
 			return nil
 		},
 	}
+	return c
+}
+
+// skillLintCmd re-scores a compiled chip's LIVE source artifacts for
+// transferability. It resolves the chip back to its sources via chipSourceIDs,
+// then scores each against CURRENT artifact content (not the frozen chip text,
+// so it also catches a chip that drifted into cheat-sheet territory after
+// compilation). Prints a scorecard: portable / borderline / cheat-sheet counts,
+// with --why for per-source signals. Exit is non-zero if any source currently
+// scores as a cheat-sheet.
+func skillLintCmd() *cobra.Command {
+	var why bool
+	c := &cobra.Command{
+		Use:   "lint <chip>",
+		Short: "re-score a chip's live sources for transferability (catches drift into cheat-sheet territory)",
+		Example: `  ward skill lint ward-bash
+  ward skill lint ward-bash --why
+  ward skill lint .opencode/skills/ward-rd-checks --json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return failErr(errNeedID)
+			}
+			arg := args[0]
+			var path string
+			var data []byte
+			err := fmt.Errorf("no such chip")
+			candidates := []string{filepath.Join(arg, "SKILL.md")}
+			if !strings.Contains(arg, string(filepath.Separator)) {
+				if home, herr := os.UserHomeDir(); herr == nil {
+					candidates = append(candidates,
+						filepath.Join(home, ".config", "opencode", "skills", arg, "SKILL.md"))
+				}
+			}
+			for _, cand := range candidates {
+				var d []byte
+				if d, err = os.ReadFile(cand); err == nil {
+					data, path = d, cand
+					break
+				}
+			}
+			if err != nil {
+				return failErr(err)
+			}
+			prevHome := os.Getenv("WARD_HOME")
+			locator := chipStoreLocator(string(data))
+			if locator != "" {
+				os.Setenv("WARD_HOME", locator)
+			}
+			s, err := store.Open()
+			if err != nil {
+				if locator != "" {
+					os.Setenv("WARD_HOME", prevHome)
+				}
+				return failErr(err)
+			}
+
+			type entry struct {
+				id      string
+				summary string
+				r       transferability.LintResult
+				missing bool
+			}
+			var entries []entry
+			for _, id := range chipSourceIDs(string(data)) {
+				a, gerr := s.GetArtifact(id)
+				if gerr != nil {
+					entries = append(entries, entry{id: id, missing: true})
+					continue
+				}
+				entries = append(entries, entry{id: id, summary: a.Summary, r: transferability.Score(a.Summary, a.Summary, a.Content)})
+			}
+			s.DB.Close()
+			if locator != "" {
+				os.Setenv("WARD_HOME", prevHome)
+			}
+
+			portable, borderline, cheat := 0, 0, 0
+			for _, e := range entries {
+				switch {
+				case e.missing:
+					// not part of the transferability verdict
+				case e.r.CheatSheet:
+					cheat++
+				case e.r.Score == 1:
+					borderline++
+				default:
+					portable++
+				}
+			}
+			res := map[string]any{
+				"chip":        path,
+				"portable":    portable,
+				"borderline":  borderline,
+				"cheat_sheet": cheat,
+			}
+			bad := 0
+			if jsonOut {
+				var detail []map[string]any
+				for _, e := range entries {
+					row := map[string]any{"id": e.id}
+					if e.missing {
+						row["status"] = "missing"
+					} else {
+						row["status"] = map[bool]string{true: "cheat_sheet", false: "ok"}[e.r.CheatSheet]
+						row["score"] = e.r.Score
+						if e.summary != "" {
+							row["summary"] = e.summary
+						}
+						if why {
+							row["signals"] = e.r.Signals
+						}
+						if e.r.CheatSheet {
+							bad++
+						}
+					}
+					detail = append(detail, row)
+				}
+				res["sources"] = detail
+				printJSON(res)
+			} else {
+				printLine(fmt.Sprintf("%s: portable=%d borderline=%d cheat-sheet=%d", path, portable, borderline, cheat))
+				for _, e := range entries {
+					switch {
+					case e.missing:
+						printLine(fmt.Sprintf("  MISSING %s", e.id))
+					case e.r.CheatSheet:
+						printLine(fmt.Sprintf("  CHEAT-SHEET %s (score %d)", e.id, e.r.Score))
+						if why {
+							for _, sgn := range e.r.Signals {
+								printLine("      - " + sgn)
+							}
+						}
+						bad++
+					case e.r.Score == 1:
+						printLine(fmt.Sprintf("  borderline %s (score %d)", e.id, e.r.Score))
+						if why {
+							for _, sgn := range e.r.Signals {
+								printLine("      - " + sgn)
+							}
+						}
+					default:
+						printLine(fmt.Sprintf("  portable %s (score %d)", e.id, e.r.Score))
+						if why {
+							for _, sgn := range e.r.Signals {
+								printLine("      - " + sgn)
+							}
+						}
+					}
+				}
+			}
+			if bad > 0 {
+				return failErr(fmt.Errorf("%d chip source(s) scored as instance-specific cheat-sheets; rewrite them as generalizable mechanisms before syncing to the global vault", bad))
+			}
+			return nil
+		},
+	}
+	c.Flags().BoolVar(&why, "why", false, "print the fired transferability signals per source")
 	return c
 }
 
@@ -477,19 +767,23 @@ func renderChip(name, topic, homeStore string, srcs []store.Artifact) string {
 	return b.String()
 }
 
-// chipSourceIDs extracts source artifact ids from a rendered chip's table.
+// chipSourceIDs extracts source artifact ids from a rendered chip's table. It
+// starts at the "## Sources" section and reads the pipe table until the next
+// section heading. Non-table lines inside the section (notably the "store: ..."
+// locator that precedes the table) are skipped, NOT treated as the end — the
+// locator is why a store-bearing chip must still resolve its sources.
 func chipSourceIDs(body string) []string {
 	var ids []string
 	inTable := false
 	for _, line := range strings.Split(body, "\n") {
-		if strings.HasPrefix(line, "## Sources") {
-			inTable = true
+		if strings.HasPrefix(line, "## ") {
+			if inTable {
+				break
+			}
+			inTable = strings.HasPrefix(line, "## Sources")
 			continue
 		}
 		if !inTable || !strings.HasPrefix(line, "| ") {
-			if inTable && line != "" && !strings.HasPrefix(line, "|") {
-				break
-			}
 			continue
 		}
 		cols := strings.Split(strings.Trim(line, "| "), "|")
