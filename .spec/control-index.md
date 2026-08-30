@@ -1,6 +1,6 @@
 # Control Specs Index — Autonomous Ward Roadmap
 
-All specs derived from: (a) internal control-engineering case study (`.arch/reflection-control-study.md`), (b) Gemini consultancy (`public_agent_feedback/gemini_30_08_2026.md`). Each spec is a standalone, verifiable increment.
+All specs derived from: (a) internal control-engineering case study (`.arch/reflection-control-study.md`), (b) a Gemini consultancy (filed in `public_agent_feedback/`, cleaned up in commit `b7f0176`; its contents are folded into the specs below). Each spec is a standalone, verifiable increment.
 
 ---
 
@@ -31,9 +31,9 @@ All specs derived from: (a) internal control-engineering case study (`.arch/refl
 | Spec | File | Key Deliverable | Depends On |
 |------|------|-----------------|------------|
 | **P2.1** KPI scorecard | `control-scorecard.md` | `ward scorecard --window 7d` (γ_cheap, ε, etc.) | P0.2 (honest sensors) |
-| **P2.2** Experiment watchdog | `control-experiment-watchdog.md` | Deterministic gate + 24h watchdog | P2.1 (internal gate) |
+| **P2.2** Experiment watchdog | `control-experiment-watchdog.md` | Report-only stall visibility (age, gate, last attempt) | — |
 
-> **Gate**: `ward scorecard --window 7d` renders γ_cheap, ε, verification pass %; H2 experiment gate is `go test ./... -race`, watchdog fires on stall.
+> **Gate**: `ward scorecard --window 7d` renders γ_cheap, ε, verification pass %; `ward experiment watchdog --check` reports stalled experiment claims read-only — reset/void stays a human decision (see spec for the stated policy question).
 
 ---
 
