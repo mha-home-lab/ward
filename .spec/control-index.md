@@ -31,9 +31,9 @@ All specs derived from: (a) internal control-engineering case study (`.arch/refl
 | Spec | File | Key Deliverable | Depends On |
 |------|------|-----------------|------------|
 | **P2.1** Routing KPI telemetry | `control-scorecard.md` | `ward kpis [--window]` — aggregation over existing `routing_decisions`; **never** touches the existing outcome-based `ward scorecard` | P0.2 |
-| **P2.2** Experiment watchdog | `control-experiment-watchdog.md` | Report-only stall visibility (age, gate, last attempt) | — |
+| **P2.2** Experiment watchdog | `control-experiment-watchdog.md` | Report-only stall visibility (age, gate, last attempt) — **deferred** | — |
 
-> **Gate**: `ward kpis --window 7d` renders cheap-hit %, escalation %, verify pass %; `ward experiment watchdog --check` reports stalled experiment claims read-only — reset/void stays a human decision (see spec for the stated policy question).
+> **Gate**: `ward kpis --window 7d` renders cheap-hit %, escalation %, verify pass %; `ward experiment watchdog --check` (only if the deferred spec is ever built) reports stalled experiment claims read-only — reset/void stays a human decision per `.spec/simulation.md`.
 
 ---
 
@@ -85,3 +85,15 @@ unchanged.
 - Implement **one spec at a time** in order; run its verification gate before moving on.
 - After each spec, update CHANGELOG and tag per release procedure.
 - Portable lessons are captured via `ward skill install portable:control-*` with the implementation's verify command.
+
+## Build Order (by real effort, after the code audit)
+
+| Tier | Work | Effort | Notes |
+|------|------|--------|-------|
+| **1** | `control-claim-age` | ~10 lines | Replace `"30+"` with computed age — single function in `brief.go`. Do first. |
+| **1** | `control-drift-sensor` | ~3 lines | Change one condition in `sweepVerify`'s counter. |
+| **1** | `control-antiwindup` | none | Run the regression gate and close — mechanism is built + tested. |
+| **2** | `control-skill-sharpen` | contained | Thread `--topic` into `sweepVerify`'s existing query; no new package. |
+| **2** | `control-scorecard` | contained | `ward kpis` over existing `routing_decisions`. **Decision made**: take the additive-column route for `execution_success` (cheaper to query; consistent with `verify_status` living on the row). |
+| **3** | `control-skill-localize` | genuinely new | Ambiguity resolved (one artifact per chip; verify_cmd independent of chip sources). This is the thesis mover — build it right, not fast. |
+| **3 (deferred)** | `control-experiment-watchdog` | — | Hold off until a stalled experiment recurs twice more; currently solves one 2026-08-23 incident. Report-only scope preserved if ever built. |

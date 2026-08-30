@@ -29,8 +29,10 @@ outcomes; `kpis` = memory-hit / routing-control telemetry from
    (pre/post-run gate) but no `execution_success` column. Cheap-HIT means
    "tier=cheap AND ran successfully" — success must come from joining run
    outcomes (the `runs`/`run_events` tables) or a new nullable column on
-   `routing_decisions`. Decide by which aggregation is cheapest; a derived
-   `success` column is acceptable (additive migration).
+   `routing_decisions`. **Decision made**: take the additive-column route — a
+   nullable `execution_success` on `routing_decisions`, stamped by the
+   orchestrator/engine at run completion. Cheaper to query than a join and
+   consistent with `verify_status` already living on the row.
 
 ## Signals (what good looks like)
 
@@ -46,10 +48,10 @@ outcomes; `kpis` = memory-hit / routing-control telemetry from
 ## What's kept / changed
 
 - **New**: aggregation over existing `routing_decisions` (via
-  `AllRoutingDecisions`) + a success join/column.
+  `AllRoutingDecisions`) + an `execution_success` signal.
 - **New**: `ward kpis` command (distinct name; never `scorecard`).
-- **Changed** (conditional): additive `success` column if outcome join is not
-  cheaper.
+- **Changed**: additive nullable `execution_success` column on
+  `routing_decisions`, stamped at run completion.
 - **Kept**: `routing_decisions` schema and write path (`AddRoutingDecision`).
 
 ## Deliberately NOT built
