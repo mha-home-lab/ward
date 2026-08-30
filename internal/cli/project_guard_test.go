@@ -2,17 +2,57 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 )
 
-// captureStderr swaps os.Stderr for a buffer and returns it plus a restore func.
-func captureStderr() (*bytes.Buffer, func()) {
+// capturedBuffer is a mutex-guarded buffer: the capture goroutine fills it via
+// ReadFrom WHILE the test reads it via String, so without serialization the
+// race detector flags it (and -race is a hard gate for concurrent work).
+type capturedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (c *capturedBuffer) ReadFrom(r io.Reader) (int64, error) {
+	// Pump manually: bytes.Buffer.ReadFrom blocks on the pipe read for the whole
+	// call, so holding the mutex across it would deadlock String(). Lock only
+	// per chunk; goroutine ends when w.Close() EOFs the pipe.
+	var total int64
+	tmp := make([]byte, 4096)
+	for {
+		n, err := r.Read(tmp)
+		if n > 0 {
+			c.mu.Lock()
+			c.buf.Write(tmp[:n])
+			c.mu.Unlock()
+			total += int64(n)
+		}
+		if err == io.EOF {
+			return total, nil
+		}
+		if err != nil {
+			return total, err
+		}
+	}
+}
+
+func (c *capturedBuffer) String() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.String()
+}
+
+// captureStderr swaps os.Stderr for a pipe drained into a synchronized buffer
+// and returns it plus a restore func (which waits for the drain to finish).
+func captureStderr() (*capturedBuffer, func()) {
 	orig := os.Stderr
 	r, w, _ := os.Pipe()
 	os.Stderr = w
-	buf := &bytes.Buffer{}
+	buf := &capturedBuffer{}
 	done := make(chan struct{})
 	go func() {
 		buf.ReadFrom(r)

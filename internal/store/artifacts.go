@@ -237,6 +237,17 @@ func (s *Store) SetVerify(id, status string) error {
 	return err
 }
 
+// SetVerifyCmd refreshes the persisted gate of an artifact. Skill install uses
+// it when re-installing a chip with a (legitimately new) user-supplied gate:
+// UpsertArtifact's content-derived id reuses the existing row, so the stored
+// verify_cmd must be overwritten to equal the gate that produced the new
+// verify_status — otherwise a later live re-verify runs the OLD gate against
+// a status the NEW gate earned (gate and verdict diverge).
+func (s *Store) SetVerifyCmd(id, cmd, kind string) error {
+	_, err := s.DB.Exec(`UPDATE artifacts SET verify_cmd=?, verify_kind=? WHERE id=?`, cmd, kind, id)
+	return err
+}
+
 // SetLocal marks an artifact as trusted (explicitly trusted import).
 func (s *Store) SetLocal(id string) error {
 	_, err := s.DB.Exec(`UPDATE artifacts SET local=1 WHERE id=?`, id)
@@ -510,8 +521,13 @@ func (s *Store) RoutingDecisionsForRun(runID string) ([]RoutingDecision, error) 
 // SetRoutingSuccess stamps the final routing decision for (runID, node) with its
 // execution outcome (1 success / 0 failure). Best-effort telemetry, same shape
 // as the verify_status post-stamp in the engine: it refines a record already
-// persisted, and a lost stamp changes no admission. Decisions never reached by
-// an outcome keep execution_success NULL (unknown), distinct from false.
+// persisted, and a lost stamp changes no admission.
+//
+// NULL (never stamped) is NOT "unknown failure": it is the honest marker for a
+// decision whose node carried no executed check — approval-gate pauses and pure
+// passthrough (channel) nodes — plus abandoned/in-flight runs. Cheap-hit
+// therefore means "cheap routing carried real checked work that succeeded",
+// never "cheap routing, did nothing, counted as a hit".
 func (s *Store) SetRoutingSuccess(runID, node string, success bool) error {
 	v := 0
 	if success {

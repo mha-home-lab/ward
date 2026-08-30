@@ -332,3 +332,54 @@ func TestEngineEvidenceInjectedOnMemoryHit(t *testing.T) {
 		t.Fatalf("verified evidence must be injected into the worker prompt, got %q", prompt)
 	}
 }
+
+// TestEngineReadPathLeavesImportedVerifyAlone reproduces the reviewed bug: the
+// memory-hit read path (memoryHitForNode, engine.go) live-verified EVERY
+// accepted candidate it saw. For imported artifacts verification.Run cannot
+// execute (trust boundary) and returns "unknown" — and stamping that over an
+// import's stored "verified" on a READ path destroyed its provenance. The read
+// path must never mutate imports at all.
+func TestEngineReadPathLeavesImportedVerifyAlone(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "spec.md"), []byte("OIDC login spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	eng, closeFn := newTestEngine(t, repo)
+	defer closeFn()
+	s := eng.Store
+
+	// Imported, previously-verified solution for node "impl". Local=false:
+	// it is the camel of another project — the trust boundary forbids running
+	// its gate here.
+	imported, err := s.UpsertArtifact(store.Artifact{
+		Kind: "solution", Summary: "imported login flow", Tags: []string{"impl"},
+		Status: "accepted", CreatedBy: "other-project", Local: false,
+		VerifyCmd: "grep -q OIDC spec.md", VerifyKind: "shell",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetVerify(imported, "verified"); err != nil {
+		t.Fatal(err)
+	}
+
+	runID, err := eng.StartWorkflow(linearWF())
+	if err != nil {
+		t.Fatal(err)
+	}
+	decs, _ := s.RoutingDecisionsForRun(runID)
+	if len(decs) == 0 {
+		t.Fatal("expected decisions")
+	}
+
+	a, err := s.GetArtifact(imported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.VerifyStatus != "verified" {
+		t.Fatalf("read path must not overwrite an import's verify_status (trust boundary), got %q", a.VerifyStatus)
+	}
+	if a.Local != false {
+		t.Fatalf("import must stay non-local, got %v", a.Local)
+	}
+}

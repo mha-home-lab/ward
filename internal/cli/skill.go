@@ -205,6 +205,9 @@ func skillInstallCmd() *cobra.Command {
 			if verifyCmd == "" {
 				return failErr(fmt.Errorf("install needs --verify-cmd: a gate that proves THIS repo's claim; a missing gate is a phantom success"))
 			}
+			if isTrivialVerify(verifyCmd) {
+				return failErr(fmt.Errorf("rejected: --verify-cmd %q is a phantom gate (true/false/: prove nothing); provide a gate that exercises the claim", verifyCmd))
+			}
 			path, err := findGlobalChip(topic, dir)
 			if err != nil {
 				return failErr(err)
@@ -234,15 +237,26 @@ func skillInstallCmd() *cobra.Command {
 			if err != nil {
 				return failErr(err)
 			}
+			// UpsertArtifact's id is (kind,summary,content)-derived, so
+			// re-installing the same chip reuses the row: persist the CURRENT
+			// gate so the stored verify_cmd always equals the gate that
+			// produced the stored status (gate and verdict never diverge).
+			if err := s.SetVerifyCmd(id, verifyCmd, "shell"); err != nil {
+				return failErr(err)
+			}
 			if _, err := s.Promote([]string{id}, "auto-accept (light ceremony)", by); err != nil {
 				return failErr(err)
 			}
 			repo, _ := os.Getwd()
 			res := verification.Run(a, repo)
 			if res.Status == "verified" {
-				_ = s.SetVerify(id, "verified")
+				if err := s.SetVerify(id, "verified"); err != nil {
+					return failErr(err)
+				}
 			} else {
-				_ = s.SetVerify(id, "error")
+				if err := s.SetVerify(id, "error"); err != nil {
+					return failErr(err)
+				}
 			}
 			if jsonOut {
 				printJSON(map[string]any{"id": id, "topic": topic, "local": true, "verify_status": res.Status, "chip": path})

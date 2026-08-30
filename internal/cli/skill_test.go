@@ -131,6 +131,94 @@ func TestSkillInstallMissingVerifyCmdIsRejected(t *testing.T) {
 	}
 }
 
+// TestSkillInstallPhantomGateIsRejected: `true`/`false`/`:` prove nothing —
+// the same authoring-time guard task add enforces must gate skill install.
+func TestSkillInstallPhantomGateIsRejected(t *testing.T) {
+	t.Setenv("WARD_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	chip := chipNameFor("trust")
+	global := filepath.Join(t.TempDir(), "skills")
+	if err := os.MkdirAll(filepath.Join(global, chip), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(global, chip, "SKILL.md"), []byte("# chip\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, phantom := range []string{"true", "false", ":"} {
+		inst := skillInstallCmd()
+		if err := inst.Flags().Set("dir", global); err != nil {
+			t.Fatal(err)
+		}
+		if err := inst.Flags().Set("verify-cmd", phantom); err != nil {
+			t.Fatal(err)
+		}
+		inst.SetArgs([]string{"portable:trust"})
+		if err := inst.Execute(); err == nil || !strings.Contains(err.Error(), "phantom") {
+			t.Fatalf("install with phantom gate %q must be rejected, got %v", phantom, err)
+		}
+	}
+}
+
+// TestSkillReinstallRefreshesGateAndVerdict is the gate-coherence regression
+// (reviewed, v0.9.7): UpsertArtifact's id is content-derived and INSERT OR
+// IGNORE, so re-installing the same chip reuses the row. Without persisting
+// the new gate, the stored verify_cmd kept the OLD command while the status
+// reflected the NEW gate — gate and verdict diverged.
+func TestSkillReinstallRefreshesGateAndVerdict(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WARD_HOME", home)
+	t.Chdir(t.TempDir())
+
+	chip := chipNameFor("retrieval-contracts")
+	global := filepath.Join(t.TempDir(), "skills")
+	if err := os.MkdirAll(filepath.Join(global, chip), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(global, chip, "SKILL.md"), []byte("# same body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("gate.txt", []byte("OK"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	install := func(gate string) error {
+		inst := skillInstallCmd()
+		if err := inst.Flags().Set("dir", global); err != nil {
+			t.Fatal(err)
+		}
+		if err := inst.Flags().Set("verify-cmd", gate); err != nil {
+			t.Fatal(err)
+		}
+		inst.SetArgs([]string{"portable:retrieval-contracts"})
+		return inst.Execute()
+	}
+
+	if err := install("grep -q OK gate.txt"); err != nil {
+		t.Fatal(err)
+	}
+	// Reinstall with a DIFFERENT gate that fails: same chip body, same summary,
+	// so the row is reused (never a second artifact).
+	if err := install("grep -q NOTTHERE gate.txt"); err == nil {
+		t.Fatal("reinstall with failing gate must error")
+	}
+
+	s, err := store.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB.Close()
+	art, _ := s.SearchArtifactsTagged("", "", "", "topic:portable:retrieval-contracts", 10)
+	if len(art) != 1 {
+		t.Fatalf("reinstall must reuse the row (one artifact), got %d", len(art))
+	}
+	if art[0].VerifyCmd != "grep -q NOTTHERE gate.txt" {
+		t.Fatalf("stored gate must equal the NEWS gate, got %q", art[0].VerifyCmd)
+	}
+	if art[0].VerifyStatus != "error" {
+		t.Fatalf("gate and verdict must agree (new gate failed), got %+v", art[0])
+	}
+}
+
 // captureOutput runs cmd capturing printLine/os.Stdout writes.
 func captureOutput(t *testing.T, cmd *cobra.Command) string {
 	t.Helper()

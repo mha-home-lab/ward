@@ -317,7 +317,13 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 	}
 	// Stamp the attempt's execution outcome for KPI telemetry (ward kpis): the
 	// decision row refines into success/failure instead of staying unknown.
-	_ = e.Store.SetRoutingSuccess(runID, nodeID, true)
+	// Pure passthrough nodes (no run, no prompt — e.g. channels) carry no check
+	// to succeed; leaving them NULL keeps cheap-hit meaning "cheap routing
+	// carried real executed (and checked) work", and matches approval-gate nodes
+	// which also stay NULL (no executed check to measure).
+	if node.Run != "" || node.Prompt != "" {
+		_ = e.Store.SetRoutingSuccess(runID, nodeID, true)
+	}
 	return false, nil
 }
 
@@ -485,7 +491,11 @@ func (e *Engine) memoryHitForNode(node Node) (bool, string, []store.Artifact) {
 	bestStatus := ""
 	var verified []store.Artifact
 	for _, a := range cands {
-		if a.Status != "accepted" {
+		if a.Status != "accepted" || !a.Local {
+			// Imported artifacts are never live-verified HERE (trust boundary):
+			// verification.Run returns "unknown" without executing, and
+			// stamping that over a stored "verified" import on a READ path
+			// would destroy its provenance. Same guard wave/tick/verify apply.
 			continue
 		}
 		if !eligible(a) {

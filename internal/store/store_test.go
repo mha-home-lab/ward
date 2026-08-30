@@ -67,6 +67,23 @@ func TestMigrationFromV1(t *testing.T) {
 		t.Fatalf("INSERT with context failed (migration bug): %v", err)
 	}
 
+	// The v9 migration adds execution_success for KPI telemetry. Prove it is
+	// usable on a MIGRATED db (not just a fresh one): the ALTER + user_version=9
+	// path must leave a real column behind, otherwise ward kpis counts nothing.
+	if err := s.SetRoutingSuccess("r", "n", true); err != nil {
+		t.Fatalf("execution_success unusable on migrated db (v9 migration bug): %v", err)
+	}
+	kp, err := s.RoutingKPIs("")
+	if err != nil {
+		t.Fatalf("RoutingKPIs unusable on migrated db: %v", err)
+	}
+	if kp.Total != 1 || kp.CheapSuccess != 0 {
+		t.Fatalf("kpis on migrated db disagree: got %+v want total=1 cheap_success=0 (decision is strong, no cheap hit)", kp)
+	}
+	if err := s.SetRoutingSuccess("r", "n", false); err != nil {
+		t.Fatalf("execution_success not writable on migrated db: %v", err)
+	}
+
 	nodes, _ := s.LoadRunNodes("r")
 	if len(nodes) == 0 || nodes[0].Escalation != 2 {
 		t.Fatalf("escalation column not usable after migration: %+v", nodes)

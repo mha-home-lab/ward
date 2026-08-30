@@ -55,13 +55,16 @@ func waveCmd() *cobra.Command {
 				NoVerify bool   `json:"no_verify_cmd,omitempty"`
 			}
 			results := make([]result, 0)
-			verified, drifted := 0, 0
+			checked, verified, drifted := 0, 0, 0
 			for _, a := range arts {
-				// Same guard tick's sweepVerify has (tick.go:31): imported
+				// Same guards tick's sweepVerify has (tick.go:31,89): imported
 				// artifacts cannot be live-verified — the trust boundary means
 				// verification.Run returns "unknown" without executing. That is
 				// NOT drift; counting or healing it would silently wipe imports.
-				if !a.Local {
+				// And proposed (review-pending) artifacts are not part of the
+				// accepted knowledge surface — healing must never pull a
+				// candidate out of review.
+				if !a.Local || a.Status != "accepted" {
 					continue
 				}
 				if a.VerifyCmd == "" {
@@ -70,7 +73,10 @@ func waveCmd() *cobra.Command {
 				}
 				res := verificationRun(a, repo)
 				before := a.VerifyStatus
-				_ = s.SetVerify(a.ID, res.Status)
+				if err := s.SetVerify(a.ID, res.Status); err != nil {
+					return failErr(fmt.Errorf("persist wave verify status for %s: %w", a.ID, err))
+				}
+				checked++
 				r := result{ID: a.ID, Before: before, After: res.Status}
 				switch res.Status {
 				case "verified":
@@ -91,9 +97,9 @@ func waveCmd() *cobra.Command {
 			}
 
 			if jsonOut {
-				printJSON(map[string]any{"topic": topic, "checked": len(arts), "verified": verified, "drifted": drifted, "results": results})
+				printJSON(map[string]any{"topic": topic, "checked": checked, "verified": verified, "drifted": drifted, "results": results})
 			} else {
-				fmt.Printf("== wave %s: %d checked, %d verified, %d drifted ==\n", topic, len(arts), verified, drifted)
+				fmt.Printf("== wave %s: %d checked, %d verified, %d drifted ==\n", topic, checked, verified, drifted)
 				for _, r := range results {
 					mark := ""
 					if r.Healed {

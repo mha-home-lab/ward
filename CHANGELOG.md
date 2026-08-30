@@ -3,6 +3,55 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## [v0.9.7] — 2026-08-30 — review phase behind subagents: wave mal-verification, engine read-path provenance, KPI honesty, skill gate coherence
+
+The v0.9.5/v0.9.6 fixes were self-reviewed. Per protocol §9 the review phase now
+runs in **fresh-context subagents** (`Review:` trailer names the reviewer, no
+more self-review). Two independent reviewers on the control-plane surface —
+one on the CLI/verification layer, one on the store/engine data plane — found
+four real bugs and two hardening gaps, all fixed here:
+
+### Fixed
+
+- **`ward wave` healed PROPOSED candidates** (reviewer finding): the sweep
+  selected by `SearchArtifactsTagged`, which excludes only `superseded`. A
+  proposed (review-pending) local artifact whose gate went red was live-verified
+  and, under `--heal`, **superseded — pulled out of review before review
+  happened**. Wave now acts only on the accepted knowledge surface (`!a.Local &&
+  a.Status == "accepted"`, exactly tick's `sweepVerify` guard); `checked` counts
+  only artifacts actually live-verified.
+- **Engine read path destroyed imported provenance** (reviewer finding): the
+  memory-hit loop in `memoryHitForNode` live-verified every accepted candidate
+  and stamped `SetVerify(a.ID, res.Status)`. For imports `verification.Run`
+  returns `"unknown"` *without executing* — the READ path overwrote an import's
+  stored `verified`, i.e. losing the trusted verdict of an artifact it can never
+  re-check (trust-boundary mutation on a pure lookup). The loop now skips
+  `!a.Local`; read paths never write imports.
+- **Cheap-hit KPI inflated by no-op nodes** (reviewer finding): the engine
+  stamped `execution_success=1` on *every* `done`, including pure passthrough
+  (no run, no prompt) channel nodes — a workflow that did nothing counted as a
+  cheap success. Success is now stamped only when a node actually executed a
+  check or a prompt (`node.Run != "" || node.Prompt != ""`). NULL stays the
+  honest marker for "no executed check": approval-gate pauses, passthroughs,
+  abandoned runs — documented on `SetRoutingSuccess`.
+- **`skill install` gate/verdict divergence on reinstall** (reviewer finding):
+  `UpsertArtifact`'s id is `(kind,summary,content)`-derived with `INSERT OR
+  IGNORE`, so reinstalling the same chip reused the row and kept the OLD
+  `verify_cmd` while the status reflected the NEW gate — gate and verdict
+  diverged. Install now persists the live gate (`SetVerifyCmd`) so the stored
+  gate always equals the gate that produced the stored status, and it enforces
+  the phantom-gate rejection (`true`/`false`/`:`) that `task add` already had.
+- **Wave/skill SetVerify errors were discarded** (reviewer finding): they now
+  fail loudly instead of silently continuing with a stale status.
+- **v9 migration untested on migrated DBs** (reviewer finding): `TestMigrationFromV1`
+  exercised only fresh-DB columns; the `execution_success` column added by the v9
+  migration now gets written on a migrated v1 DB, proving `ward kpis` works
+  post-migration.
+- **Test race** found by the `-race` gate (concurrent Go protocol §4): the
+  `captureStderr` helper wrote a pipe into a `bytes.Buffer` while the test read
+  it — the buffer is now mutex-guarded per chunk. `go test ./... -race` is
+  green end to end.
+
 ## [v0.9.6] — 2026-08-30 — fix: `ward wave --heal` respects the trust boundary (imported artifacts are not drift)
 
 A reviewer's check of the skill roadmap caught what no spec did: `waveCmd`
