@@ -84,7 +84,7 @@ func TestBriefNextActionsGuidance(t *testing.T) {
 	for _, want := range []string{
 		"ward run resume r1",
 		"ward run approve r2 n1",
-		"STALE",
+		"FAILED live verification",
 		"claimed by a9",
 	} {
 		if !strings.Contains(joined, want) {

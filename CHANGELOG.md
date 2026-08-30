@@ -3,6 +3,58 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## [v0.9.5] — 2026-08-30 — control-plane: honest sensors, cheap-hit KPIs, skill localization
+
+The reflection control study (`.arch/reflection-control-study.md`) found three
+control loops in Ward that were noisy or had no feedback:
+(1) `brief` hardcoded every stale claim's age as `"30+"` instead of computing
+it; (2) `tick`'s drift counter only counted artifacts that had been verified
+and THEN failed, hiding a drifted/error artifact that was never verified;
+(3) no telemetry could tell whether the "verified memory enables cheaper
+routing" thesis was actually paying off. Released as `ward kpis` (the 
+outcome-based `ward scorecard` is untouched). Separately, the thesis loop now
+closes at the source: a global `portable:*` skill chip can be localized into a
+repo as a live-verified, store-local artifact. The audit also confirmed the
+topic-scoped adapt loop already existed as `ward wave <topic> [--heal]`, so
+that spec closed with no code.
+
+### Added
+
+- **`ward kpis [--window 24h|7d|2w]`**: routing-control telemetry computed from
+  `routing_decisions` — cheap-hit %, escalation %, verify-pass %, memory-miss
+  %, with per-window `--json`. Additive nullable `execution_success` column
+  (migration v9) stamped by the engine: `1` on a node's done, `0` on every
+  failed/rejected attempt (escalate, budget-exhausted, preflight, identical
+  failure); decisions never reached by an outcome stay NULL (unknown, never
+  guessed). `ward kpis` never conflicts with the existing outcome-based
+  `ward scorecard` (engineer performance).
+- **`ward skill install <topic> --verify-cmd <gate>`**: localizes a global
+  skill chip (`~/.config/opencode/skills/ward-<topic>/SKILL.md`) into THIS
+  repo's store as one fresh local artifact (`Local=true`, tag `topic:<topic>`),
+  runs the user-supplied gate immediately via `verification.Run`, and stamps
+  `verified` (votes cheap on future routes) or `error` (artifact exists but
+  never votes cheap; install errors explicitly). A missing gate is rejected.
+- **`ward skill list-global [--dir]`**: lists available chips — the install
+  surface.
+
+### Fixed
+
+- **Computed claim age in `ward brief`**: stale claims now report real
+  `mins_aged` / `age_hours` via `claimAge()` parsing `claimed_at`
+  (`2006-01-02T15:04:05Z`, legacy space-separated variant tolerated); the
+  hardcoded `"30+"` literal is gone, and the human brief shows the age.
+- **Unbiased drift count in `ward tick`**: `sweepVerify` counts EVERY local
+  accepted artifact whose live re-verify returns `stale` or `error`
+  (absolute), not only transitions from a previous verified state; the next
+  action now reads "N local artifact(s) FAILED live verification".
+
+### Release
+
+- Specs closed: `control-claim-age`, `control-drift-sensor`, `control-antiwindup`
+  (regression gate only), `control-skill-sharpen` (already built as `ward wave`),
+  `control-scorecard`, `control-skill-localize`. `control-experiment-watchdog`
+  remains deferred by condition. Build order recorded in `.spec/control-index.md`.
+
 ## [v0.9.4] — 2026-08-29 — fix: ward-itself requests filed in the wrong store (cross-project routing)
 
 A recurring coordination failure: an agent working in project X would file a

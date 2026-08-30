@@ -137,6 +137,14 @@ func (s *Store) migrate() error {
 		return err
 	}
 	_, err = s.DB.Exec("PRAGMA user_version = 8")
+	// v9 (control-scorecard/kpis): execution_success on routing_decisions
+	// enables the cheap-hit KPI (tier='cheap' AND ran successfully) without a
+	// run-status join. Additive and nullable: decisions recorded before this
+	// migration stay NULL (unknown outcome) rather than guessed.
+	if err := s.addColumn("routing_decisions", "execution_success", "INTEGER"); err != nil {
+		return err
+	}
+	_, err = s.DB.Exec("PRAGMA user_version = 9")
 	return err
 }
 

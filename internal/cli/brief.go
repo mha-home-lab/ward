@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mha-home-lab/ward/internal/store"
 	"github.com/spf13/cobra"
@@ -152,13 +153,14 @@ func briefCmd() *cobra.Command {
 				_ = stale
 				b.StaleClaims = make([]map[string]string, 0, len(stale))
 				for _, t := range stale {
+					mins, hours := claimAge(t.ClaimedAt)
 					b.StaleClaims = append(b.StaleClaims, map[string]string{
-						"id": t.ID, "by": orDefault(t.ClaimedBy, "?"), "mins_aged": "30+",
-						"title": t.Title,
+						"id": t.ID, "by": orDefault(t.ClaimedBy, "?"), "mins_aged": mins,
+						"age_hours": hours, "title": t.Title,
 					})
 					b.Next = append(b.Next,
-						fmt.Sprintf("STALE CLAIM %s held by %s since >30m: verify holder alive; recover with ward task take %s --by <you>",
-							t.ID, orDefault(t.ClaimedBy, "?"), t.ID))
+						fmt.Sprintf("STALE CLAIM %s held by %s for %s: verify holder alive; recover with ward task take %s --by <you>",
+							t.ID, orDefault(t.ClaimedBy, "?"), mins, t.ID))
 				}
 			}
 
@@ -241,6 +243,23 @@ func contextHits(s *store.Store, topic string, limit int) ([]knowledgeHit, error
 	return out, nil
 }
 
+// claimAge parses a claim timestamp and returns display strings for the
+// elapsed minutes and hours. Unknown if the timestamp can't be parsed - a
+// literal is never emitted for a value that is derivable from state.
+func claimAge(claimedAt string) (mins, hours string) {
+	t, err := time.Parse("2006-01-02T15:04:05Z", claimedAt)
+	if err != nil {
+		if t, err = time.Parse("2006-01-02 15:04:05", claimedAt); err != nil {
+			return "?", "?"
+		}
+	}
+	m := int(time.Since(t).Minutes())
+	if m < 1 {
+		m = 1
+	}
+	return fmt.Sprintf("%d", m), fmt.Sprintf("%.1f", time.Since(t).Hours())
+}
+
 // nextActions turns the observed state into imperative guidance — the part that
 // keeps an agent from guessing what to do first.
 func nextActions(b brief) []string {
@@ -254,7 +273,7 @@ func nextActions(b brief) []string {
 		}
 	}
 	if b.Drift > 0 {
-		next = append(next, fmt.Sprintf("%d previously-verified artifact(s) went STALE: treat them as misses, do not trust their summaries", b.Drift))
+		next = append(next, fmt.Sprintf("%d local artifact(s) FAILED live verification: treat them as misses, do not trust their summaries", b.Drift))
 	}
 	if len(b.OpenTasks) > 0 {
 		next = append(next, fmt.Sprintf("%d open task(s) in the pool: ward task next --by <your-name> --max-tier <budget>", len(b.OpenTasks)))
@@ -333,7 +352,7 @@ func printHumanBrief(b brief) {
 		fmt.Println("STALE CHIP: " + sc)
 	}
 	for _, scl := range b.StaleClaims {
-		fmt.Printf("STALE CLAIM: %s held by %s (%s)\n", scl["id"], scl["by"], scl["title"])
+		fmt.Printf("STALE CLAIM: %s held by %s for %sh (%s)\n", scl["id"], scl["by"], scl["age_hours"], scl["title"])
 	}
 	if len(b.Claims) > 0 {
 		fmt.Println("active claims:")

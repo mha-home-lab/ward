@@ -157,9 +157,13 @@ func TestSurfaceEmptyStoreJSONContract(t *testing.T) {
 		{"memory search", func(t *testing.T) string { return jsonRun(t, memorySearchCmd(), []string{"nothing"}) }},
 		{"memory list", func(t *testing.T) string { return jsonRun(t, memoryListCmd(), nil) }},
 		{"scorecard", func(t *testing.T) string { return jsonRun(t, scorecardCmd(), nil) }},
+		{"kpis", func(t *testing.T) string { return jsonRun(t, kpisCmd(), nil) }},
 		{"wave empty topic", func(t *testing.T) string { return jsonRun(t, waveCmd(), []string{"topic:nope"}) }},
 		{"skill-sync empty brain", func(t *testing.T) string {
 			return jsonRun(t, syncCmd(), []string{"--dir", filepath.Join(t.TempDir(), "skills")})
+		}},
+		{"skill list-global empty", func(t *testing.T) string {
+			return jsonRun(t, skillListGlobalCmd(), []string{"--dir", filepath.Join(t.TempDir(), "skills")})
 		}},
 		{"verify all", func(t *testing.T) string { return jsonRun(t, verifyCmd(), []string{"--all"}) }},
 		{"memory handoff", func(t *testing.T) string { return jsonRun(t, memoryHandoffCmd(), nil) }},

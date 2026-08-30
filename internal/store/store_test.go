@@ -91,7 +91,74 @@ func TestMigrationFromV1(t *testing.T) {
 	}
 }
 
-// TestClaimCasRace proves the claim reservation is safe across separate
+// TestRoutingKPIsAggregateAndStamp proves the routing-control telemetry: cheap
+// hit = tier cheap AND attempt succeeded; failures stay misses; decisions never
+// reached by an outcome keep success unknown (not guessed); a since-window
+// bounds the population.
+func TestRoutingKPIsAggregateAndStamp(t *testing.T) {
+	home := t.TempDir()
+	os.Setenv("WARD_HOME", home)
+	defer os.Unsetenv("WARD_HOME")
+
+	s, err := Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB.Close()
+
+	mk := func(run, node, tier string, mh bool, at string) {
+		if err := s.AddRoutingDecision(RoutingDecision{
+			RunID: run, Node: node, Tier: tier, MemoryHit: mh, CreatedAt: at,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old, new := "2026-08-01T00:00:00Z", "2026-08-10T00:00:00Z"
+	mk("r1", "a", "cheap", false, old) // cheap, never stamped -> unknown
+	mk("r1", "b", "cheap", true, old)  // cheap, success
+	mk("r1", "c", "cheap", false, new) // cheap, failed -> miss
+	if err := s.AddRoutingDecision(RoutingDecision{
+		RunID: "r1", Node: "d", Tier: "strong", EscalatedFrom: "cheap", MemoryHit: false, CreatedAt: new,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRoutingSuccess("r1", "b", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRoutingSuccess("r1", "c", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRoutingSuccess("r1", "d", true); err != nil {
+		t.Fatal(err)
+	}
+
+	k, err := s.RoutingKPIs("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k.Total != 4 || k.Cheap != 3 || k.CheapSuccess != 1 || k.CheapHitRate != 25.0 {
+		t.Fatalf("unexpected all-history KPIs: %+v", k)
+	}
+	if k.Escalated != 1 || k.EscalationRate != 25.0 {
+		t.Fatalf("unexpected escalation KPIs: %+v", k)
+	}
+	if k.MemoryMiss != 3 || k.VerifiedPass != 0 {
+		t.Fatalf("unexpected miss/verify KPIs: %+v", k)
+	}
+
+	kw, err := s.RoutingKPIs(new)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kw.Total != 2 || kw.Cheap != 1 || kw.CheapSuccess != 0 {
+		t.Fatalf("since-window must exclude pre-window decisions: %+v", kw)
+	}
+	if kw.WindowFrom != new {
+		t.Fatalf("window must report its from edge, got %q", kw.WindowFrom)
+	}
+}
+
+// TestClaimTopicAtomicRace proves the claim reservation is safe across separate
 // `ward` processes: eight independent Open() handles race on the same topic and
 // exactly ONE wins, the rest get a conflict. This is the bug the check-then-
 // insert path could not guarantee (the unique index on (claim_topic, project)

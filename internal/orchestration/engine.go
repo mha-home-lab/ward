@@ -263,6 +263,7 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 				if err := e.Store.SaveRun(store.RunState{ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO()}); err != nil {
 					return true, fmt.Errorf("persist preflight rejected run: %w", err)
 				}
+				_ = e.Store.SetRoutingSuccess(runID, nodeID, false)
 				e.WriteDossier(runID, nodeID)
 				return true, nil
 			}
@@ -279,6 +280,7 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 				if err := e.Store.SaveRun(store.RunState{ID: runID, WorkflowName: wf.Name, WorkflowPath: wf.Path, Status: "rejected", UpdatedAt: store.NowISO()}); err != nil {
 					return true, fmt.Errorf("persist identical-fail run: %w", err)
 				}
+				_ = e.Store.SetRoutingSuccess(runID, nodeID, false)
 				e.WriteDossier(runID, nodeID)
 				return true, nil
 			}
@@ -313,6 +315,9 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 			WHERE verify_status != 'verified' AND id=(SELECT id FROM routing_decisions
 			WHERE run_id=? AND node=? ORDER BY created_at DESC, id DESC LIMIT 1)`, runID, nodeID)
 	}
+	// Stamp the attempt's execution outcome for KPI telemetry (ward kpis): the
+	// decision row refines into success/failure instead of staying unknown.
+	_ = e.Store.SetRoutingSuccess(runID, nodeID, true)
 	return false, nil
 }
 
@@ -322,6 +327,10 @@ func (e *Engine) stepNode(runID string, wf *Workflow, nodeID string, done map[st
 // marks the node done.
 func (e *Engine) failNode(runID string, wf *Workflow, nodeID string, esc int, escal map[string]int, reason string) (bool, error) {
 	newEsc := esc + 1
+	// The attempt that just failed is a real execution whose decision row must
+	// know it (cheap-hit KPI counts cheap AND success; a failed cheap attempt
+	// is a cheap MISS, not a hit).
+	_ = e.Store.SetRoutingSuccess(runID, nodeID, false)
 	if newEsc > routing.MaxEscalation {
 		if err := e.Store.UpsertRunNode(store.RunNode{
 			RunID: runID, Node: nodeID, Status: "failed", Escalation: newEsc, UpdatedAt: store.NowISO(),

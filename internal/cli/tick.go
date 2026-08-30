@@ -17,9 +17,11 @@ type verifyChange struct {
 }
 
 // sweepVerify re-runs every store-local accepted artifact's verify_cmd LIVE
-// against the repo and persists the outcome. This is the drift detector: a
-// previously-verified artifact that fails is stale, and the router treats any
-// non-verified status as a memory MISS. Returns what changed.
+// against the repo and persists the outcome. This is the drift detector: any
+// local artifact that fails live verification is drifted, whether it was
+// previously verified (then it flips to stale) or never verified (then it was
+// already erroring) — an absolute count, not just this sweep's transitions.
+// Returns what changed.
 func sweepVerify(s *store.Store, repo string) (checked, drift int, changes []verifyChange, err error) {
 	accepted, err := s.ListArtifacts("accepted", "", "", 1000)
 	if err != nil {
@@ -35,7 +37,7 @@ func sweepVerify(s *store.Store, repo string) (checked, drift int, changes []ver
 			return checked, drift, changes, err
 		}
 		checked++
-		if before == "verified" && res.Status != "verified" {
+		if res.Status == "stale" || res.Status == "error" {
 			drift++
 		}
 		if before != res.Status {
@@ -46,12 +48,12 @@ func sweepVerify(s *store.Store, repo string) (checked, drift int, changes []ver
 }
 
 // tickCmd sweeps all store-local accepted artifacts, runs their verify_cmd
-// LIVE, and reports drift (previously verified -> no longer verified). With
-// --heal it also closes the loop: a drifted artifact is superseded with reason
-// "drift" so it can never vote cheap or pollute context again. Healing acts
-// only on store-local artifacts (the sweep already excludes imports) and never
-// stamps a status without evidence — supersede happens only after the live
-// re-run failed.
+// LIVE, and reports drift (local artifacts failing live verification). With
+// --heal it also closes the loop: every drifted artifact is superseded with
+// reason "drift" so it can never vote cheap or pollute context again. Healing
+// acts only on store-local artifacts (the sweep already excludes imports) and
+// never stamps a status without evidence — supersede happens only after the
+// live re-run failed.
 func tickCmd() *cobra.Command {
 	var repo string
 	var heal bool

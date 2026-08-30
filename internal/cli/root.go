@@ -104,7 +104,7 @@ func NewRoot() *cobra.Command {
 	}
 	root.PersistentFlags().BoolVar(&jsonOut, "json", false, "emit JSON instead of human text")
 	root.PersistentFlags().String("project", "", "target a project store by name (registered via 'ward project register'); default = current store")
-	root.AddCommand(briefCmd(), initCmd(), memoryCmd(), verifyCmd(), routeCmd(), routerCmd(), runCmd(), captureCmd(), taskCmd(), explainCmd(), rejectCmd(), doctorCmd(), workflowCmd(), tickCmd(), harvestCmd(), skillCmd(), timelineCmd(), waveCmd(), scorecardCmd(), syncCmd(), docCmd(), projectCmd(), versionCmd())
+	root.AddCommand(briefCmd(), initCmd(), memoryCmd(), verifyCmd(), routeCmd(), routerCmd(), runCmd(), captureCmd(), taskCmd(), explainCmd(), rejectCmd(), doctorCmd(), workflowCmd(), tickCmd(), harvestCmd(), skillCmd(), timelineCmd(), waveCmd(), scorecardCmd(), kpisCmd(), syncCmd(), docCmd(), projectCmd(), versionCmd())
 	return root
 }
 

@@ -37,8 +37,9 @@ Portable lessons (`portable:*` tags) enter as `Local=false` (imported). The rout
   artifacts) and the 1:1 mapping unambiguous.
 
 ## What's kept / changed
-- **New**: `internal/skill/installer.go` — `InstallGlobalSkill(topic, verifyCmd) -> (artifact, error)`.
-- **New**: `cmd/skill.go` — `skill install` + `skill list-global` commands.
+- **New**: `ward skill install <topic> --verify-cmd <cmd>` and `ward skill list-global`
+  in `internal/cli/skill.go` (repo convention — commands live in cli, not in a new
+  package; there is no `internal/skill/installer.go`).
 - **Kept**: Global skill files in `~/.config/opencode/skills/ward-<topic>/SKILL.md`.
 - **Kept**: Router purity — only reads `Local` + `VerifyStatus` from store.
 
@@ -50,16 +51,19 @@ Portable lessons (`portable:*` tags) enter as `Local=false` (imported). The rout
 
 ```bash
 # Unit
-go test ./internal/skill/... -run TestInstallGlobalSkill -v
+go test ./internal/cli/... -run 'TestSkillInstall' -v
 
-# E2E
+# E2E (proven live 2026-08-30)
 ward skill list-global
-id=$(ward skill install portable:control-antiwindup \
-     --verify-cmd "go test ./internal/store/... -run TestSweepExpiredClaims" --json \
-     | jq -r '.id')          # install prints the new artifact id
+id=$(WARD_HOME=$PWD/.ward ward skill install cli-contract \
+     --verify-cmd "grep -q x probe.txt" --json | jq -r '.id')  # install prints the artifact id
 ward memory get "$id" --json | jq -e '.Local == true and .VerifyStatus == "verified"'
 # Expected: true — a verified LOCAL artifact now exists for the topic
 ward route test --kind test --memory-hit --verify-status verified | grep 'tier=cheap'
 # Expected: the pure router maps a verified memory hit to the cheap tier
 # (this is the vote the new artifact enables on future runs)
 ```
+
+Store this gate's evidence: the `.ward/logs/` sidecar and the two snippets above.
+A failing `--verify-cmd` still creates the artifact with VerifyStatus=error and
+errors explicitly (it exists but never votes cheap).

@@ -507,6 +507,75 @@ func (s *Store) RoutingDecisionsForRun(runID string) ([]RoutingDecision, error) 
 	return out, nil
 }
 
+// SetRoutingSuccess stamps the final routing decision for (runID, node) with its
+// execution outcome (1 success / 0 failure). Best-effort telemetry, same shape
+// as the verify_status post-stamp in the engine: it refines a record already
+// persisted, and a lost stamp changes no admission. Decisions never reached by
+// an outcome keep execution_success NULL (unknown), distinct from false.
+func (s *Store) SetRoutingSuccess(runID, node string, success bool) error {
+	v := 0
+	if success {
+		v = 1
+	}
+	_, err := s.DB.Exec(`UPDATE routing_decisions SET execution_success=?
+		WHERE id=(SELECT id FROM routing_decisions
+		WHERE run_id=? AND node=? ORDER BY created_at DESC, id DESC LIMIT 1)`, v, runID, node)
+	return err
+}
+
+// KPIReport is the routing-control telemetry for one observation window
+// (control-index P2.1): the controlled variables of the "verified memory
+// enables cheaper routing" thesis.
+type KPIReport struct {
+	WindowFrom     string  `json:"window_from"`
+	WindowTo       string  `json:"window_to"`
+	Total          int     `json:"total"`
+	Cheap          int     `json:"cheap"`
+	CheapSuccess   int     `json:"cheap_success"`
+	Escalated      int     `json:"escalated"`
+	MemoryMiss     int     `json:"memory_miss"` // memory_hit=0: no verified memory carried
+	VerifiedPass   int     `json:"verified_pass"`
+	CheapHitRate   float64 `json:"cheap_hit_rate"`   // % of decisions that were cheap AND succeeded
+	EscalationRate float64 `json:"escalation_rate"`  // % of decisions escalated from a lower tier
+	VerifyPassRate float64 `json:"verify_pass_rate"` // % with verify_status verified/passed
+	MissRate       float64 `json:"miss_rate"`        // % with memory_hit=0
+}
+
+// RoutingKPIs aggregates routing_decisions within a window (created_at >= since,
+// "" = all history) into the control-plane KPIs.
+func (s *Store) RoutingKPIs(since string) (KPIReport, error) {
+	var r KPIReport
+	// WindowTo is the newest decision edge, so the report is honest about what
+	// it actually saw (an empty table has no "now" to claim).
+	if err := s.DB.QueryRow(`SELECT COALESCE(MAX(created_at),'') FROM routing_decisions`).Scan(&r.WindowTo); err != nil {
+		return r, err
+	}
+	q := `SELECT count(*),
+		COALESCE(SUM(CASE WHEN tier='cheap' THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN tier='cheap' AND COALESCE(execution_success,0)=1 THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN escalated_from IS NOT NULL AND escalated_from != '' THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN memory_hit=0 THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN verify_status IN ('verified','passed') THEN 1 ELSE 0 END),0)
+		FROM routing_decisions`
+	args := []any{}
+	if since != "" {
+		q += ` WHERE created_at >= ?`
+		args = append(args, since)
+		r.WindowFrom = since
+	}
+	err := s.DB.QueryRow(q, args...).Scan(&r.Total, &r.Cheap, &r.CheapSuccess, &r.Escalated, &r.MemoryMiss, &r.VerifiedPass)
+	if err != nil {
+		return r, err
+	}
+	if r.Total > 0 {
+		r.CheapHitRate = float64(r.CheapSuccess) / float64(r.Total) * 100
+		r.EscalationRate = float64(r.Escalated) / float64(r.Total) * 100
+		r.VerifyPassRate = float64(r.VerifiedPass) / float64(r.Total) * 100
+		r.MissRate = float64(r.MemoryMiss) / float64(r.Total) * 100
+	}
+	return r, nil
+}
+
 func boolInt(b bool) int {
 	if b {
 		return 1

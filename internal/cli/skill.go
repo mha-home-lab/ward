@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mha-home-lab/ward/internal/store"
+	"github.com/mha-home-lab/ward/internal/verification"
 	"github.com/spf13/cobra"
 )
 
@@ -23,8 +24,8 @@ import (
 // through the R&D loop, which carry no verify_cmd) counts via architect
 // promotion. Anything failing its class gate is excluded, not softened.
 func skillCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "skill", Short: "compile verified knowledge into agent skill files (chips)"}
-	cmd.AddCommand(skillPackCmd(), skillCheckCmd())
+	cmd := &cobra.Command{Use: "skill", Short: "compile verified knowledge into agent skill files (chips); localize global chips into this repo"}
+	cmd.AddCommand(skillPackCmd(), skillCheckCmd(), skillInstallCmd(), skillListGlobalCmd())
 	return cmd
 }
 
@@ -181,6 +182,158 @@ func skillCheckCmd() *cobra.Command {
 		},
 	}
 	return c
+}
+
+// skillInstallCmd closes the feedforward loop (control-skill-localize): a
+// GLOBAL portable chip becomes a FRESH local claim in THIS repo's store —
+// Local=true, user-supplied verify_cmd, live-verified immediately. One
+// artifact per chip; the chip's sources stay untouched in their home store.
+// When the gate passes the artifact votes cheap on its topic in future runs;
+// when it fails the artifact exists but does NOT vote cheap, and install errors.
+func skillInstallCmd() *cobra.Command {
+	var verifyCmd, dir, by string
+	c := &cobra.Command{
+		Use:   "install <topic> --verify-cmd <cmd>",
+		Short: "localize a global skill chip into this repo as a verified local artifact",
+		Example: `  ward skill install portable:control-antiwindup --verify-cmd "go test ./internal/store/... -run TestSweepExpiredClaims"
+  ward skill list-global`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return failErr(fmt.Errorf("skill install needs a topic"))
+			}
+			topic := args[0]
+			if verifyCmd == "" {
+				return failErr(fmt.Errorf("install needs --verify-cmd: a gate that proves THIS repo's claim; a missing gate is a phantom success"))
+			}
+			path, err := findGlobalChip(topic, dir)
+			if err != nil {
+				return failErr(err)
+			}
+			body, err := os.ReadFile(path)
+			if err != nil {
+				return failErr(err)
+			}
+			s, err := store.Open()
+			if err != nil {
+				return failErr(err)
+			}
+			defer s.DB.Close()
+
+			a := store.Artifact{
+				Kind:       "solution",
+				Summary:    fmt.Sprintf("localized skill: %s (chip %s)", topic, filepath.Base(filepath.Dir(path))),
+				Content:    string(body),
+				Tags:       []string{"topic:" + topic},
+				CreatedBy:  by,
+				Local:      true,
+				VerifyCmd:  verifyCmd,
+				VerifyKind: "shell",
+				Ceremony:   "light",
+			}
+			id, err := s.UpsertArtifact(a)
+			if err != nil {
+				return failErr(err)
+			}
+			if _, err := s.Promote([]string{id}, "auto-accept (light ceremony)", by); err != nil {
+				return failErr(err)
+			}
+			repo, _ := os.Getwd()
+			res := verification.Run(a, repo)
+			if res.Status == "verified" {
+				_ = s.SetVerify(id, "verified")
+			} else {
+				_ = s.SetVerify(id, "error")
+			}
+			if jsonOut {
+				printJSON(map[string]any{"id": id, "topic": topic, "local": true, "verify_status": res.Status, "chip": path})
+				if res.Status != "verified" {
+					return failErr(fmt.Errorf("verify failed: %s", res.Detail))
+				}
+				return nil
+			}
+			if res.Status == "verified" {
+				printLine(fmt.Sprintf("installed %s (localized %s; verify=%s) — can now vote cheap on its topic", id, topic, res.Status))
+			} else {
+				printLine(fmt.Sprintf("installed %s (%s; verify=%s FAILED: %s)", id, topic, res.Status, res.Detail))
+				printLine("  the artifact exists but does NOT vote cheap until its gate passes")
+				return failErr(fmt.Errorf("verify failed: %s", res.Detail))
+			}
+			return nil
+		},
+	}
+	c.Flags().StringVar(&verifyCmd, "verify-cmd", "", "verification command proving THIS repo's claim (required)")
+	c.Flags().StringVar(&dir, "dir", "", "override global skills directory (default ~/.config/opencode/skills)")
+	c.Flags().StringVar(&by, "by", "agent", "creator name")
+	return c
+}
+
+// skillListGlobalCmd lists portable skill chips available in the global skills
+// directory — the install surface for `ward skill install`.
+func skillListGlobalCmd() *cobra.Command {
+	var dir string
+	c := &cobra.Command{
+		Use:     "list-global",
+		Short:   "list portable skill chips in the global skills directory",
+		Example: "  ward skill list-global\n  ward skill list-global --json",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			base := dir
+			if base == "" {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return failErr(err)
+				}
+				base = filepath.Join(home, ".config", "opencode", "skills")
+			}
+			chips := []map[string]string{}
+			if entries, err := os.ReadDir(base); err == nil {
+				var names []string
+				for _, e := range entries {
+					if e.IsDir() && strings.HasPrefix(e.Name(), "ward-") {
+						names = append(names, e.Name())
+					}
+				}
+				sort.Strings(names)
+				for _, n := range names {
+					chips = append(chips, map[string]string{"name": n, "path": filepath.Join(base, n, "SKILL.md")})
+				}
+			}
+			if jsonOut {
+				printJSON(map[string]any{"dir": base, "chips": chips})
+				return nil
+			}
+			printLine("global skills at " + base)
+			if len(chips) == 0 {
+				printLine("  (no ward-* chips — seed with 'ward skill-sync')")
+			}
+			for _, c := range chips {
+				printLine(fmt.Sprintf("  %-24s %s", c["name"], c["path"]))
+			}
+			return nil
+		},
+	}
+	c.Flags().StringVar(&dir, "dir", "", "override global skills directory")
+	return c
+}
+
+// findGlobalChip resolves the SKILL.md for a topic under the global skills
+// directory. Global chips are named chipNameFor(topic-without-portable:)
+// (matching skill-sync), with a fallback to the raw topic form.
+func findGlobalChip(topic, override string) (string, error) {
+	base := override
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		base = filepath.Join(home, ".config", "opencode", "skills")
+	}
+	for _, name := range []string{chipNameFor(strings.TrimPrefix(topic, "portable:")), chipNameFor(topic)} {
+		p := filepath.Join(base, name, "SKILL.md")
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("no global chip for %q under %s (seed with 'ward skill-sync', or see 'ward skill list-global')", topic, base)
 }
 
 // skillSources selects eligible artifacts for a chip: accepted, matching the
