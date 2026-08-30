@@ -2,6 +2,27 @@
 
 **Date**: 2026-08-29 | **Version**: 0.9.4 | **Context**: Post v0.9.4 cross-project routing release
 
+> **CORRIGENDUM (2026-08-30)** — several empirical claims below were written
+> without re-checking the code and are **known false** after audit. Do not
+> propagate them:
+> - "`expired-claims-freed=0` always" — **false**: `SweepExpiredClaims`
+>   exists, runs in `ward tick` and `ward brief`, is tested, and brief prints
+>   the live freed count (`internal/store/artifacts.go:120`,
+>   `internal/cli/tick.go:103`, `internal/cli/brief.go:68,307`).
+> - "`drift=0` in brief while 7/8 artifacts in error" and "87% of local
+>   knowledge is degraded" — the ratio figures are **unsourced**. What is true
+>   and narrower: the **reported `drift` count** only counts `verified ->
+>   non-verified` transitions within one sweep; the heal loop
+>   (`internal/cli/tick.go:82-97`) already acts on any failing local artifact.
+> - The "6 stale claims, 0 freed" state vector predates the sweep wiring and is
+>   stale; `brief`/`tick` now free expired claims every run.
+> - The H2 experiment "stall" is a **documented single outage event**
+>   (`.arch/tasks.md`, `.spec/simulation.md`), not a missing subsystem; there
+>   is no `internal/experiment` package.
+>
+> The controlled `.spec/control-*.md` specs are the corrected, code-audited
+> scopes. Treat this document's numbers as historical impressions only.
+
 ---
 
 ## 1. System Identification: What Is Ward?

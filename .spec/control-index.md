@@ -6,34 +6,34 @@ All specs derived from: (a) internal control-engineering case study (`.arch/refl
 
 ## Execution Order (Dependencies)
 
-### Phase 1: Fix Core Sensors & Bounds (P0 — unblock autonomy)
+### Phase 1: Fix Core Sensors & Bounds (P0 — unblock autonomy; ALL audited against code)
 | Spec | File | Key Deliverable | Depends On |
 |------|------|-----------------|------------|
-| **P0.1** Anti-windup claim expiry | `control-antiwindup.md` | `SweepExpiredClaims()`, claim age in brief | — |
-| **P0.2** Unbiased drift sensor | `control-drift-sensor.md` | `DetectDrift()`, `tick --heal` honest | — |
-| **P0.3** Claim age in brief | `control-claim-age.md` | Stale claim age in `brief` output | P0.1 |
+| **P0.1** Anti-windup claim expiry | `control-antiwindup.md` | **Already built** (`SweepExpiredClaims` in tick+brief, tested) — validate, no build | — |
+| **P0.2** Unbiased drift reporting | `control-drift-sensor.md` | Fix `drift` count to absolute failing-local-artifacts (heal already unbiased) | — |
+| **P0.3** Computed claim age in brief | `control-claim-age.md` | Replace hardcoded `"30+"` (`brief.go:156`) with computed age | — |
 
-> **Gate**: `ward brief` shows `expired-claims-freed>0`, `drift_count=7` (honest), `active-stale-claims` with ages.
+> **Gate**: `ward brief` shows `expired-claims-freed` (already live), `drift` counts every non-verified local accepted artifact, stale claims carry a computed age (`mins_aged` is never a literal).
 
 ---
 
-### Phase 2: Close Knowledge Loop (P1 — thesis enablers)
+### Phase 2: Close Knowledge Loop (P1 — thesis enablers; ALL audited against code)
 | Spec | File | Key Deliverable | Depends On |
 |------|------|-----------------|------------|
-| **P1.1** Skill localization pipeline | `control-skill-localize.md` | `ward skill install <topic> --verify-cmd` | P0.2 (live verify works) |
-| **P1.2** Skill sharpening (adaptation) | `control-skill-sharpen.md` | `ward skill sharpen --all` | P1.1 (local skills exist) |
+| **P1.1** Skill localization pipeline | `control-skill-localize.md` | `ward skill install <topic> --verify-cmd` (imported → local artifact) | P0.2 |
+| **P1.2** Topic-scoped heal | `control-skill-sharpen.md` | `ward tick --heal --topic <tag>` — adapt loop already exists; only add the filter | P1.1 |
 
-> **Gate**: `ward skill install portable:control-antiwindup --verify-cmd "..."` → router votes cheap on matching tag.
+> **Gate**: `ward skill install portable:control-antiwindup --verify-cmd "..."` → router votes cheap on matching tag; `ward tick --heal --topic <tag>` heals only that tag.
 
 ---
 
-### Phase 3: Telemetry & Reference Stability (P2 — control plane)
+### Phase 3: Telemetry & Reference Stability (P2 — control plane; ALL audited against code)
 | Spec | File | Key Deliverable | Depends On |
 |------|------|-----------------|------------|
-| **P2.1** KPI scorecard | `control-scorecard.md` | `ward scorecard --window 7d` (γ_cheap, ε, etc.) | P0.2 (honest sensors) |
+| **P2.1** Routing KPI telemetry | `control-scorecard.md` | `ward kpis [--window]` — aggregation over existing `routing_decisions`; **never** touches the existing outcome-based `ward scorecard` | P0.2 |
 | **P2.2** Experiment watchdog | `control-experiment-watchdog.md` | Report-only stall visibility (age, gate, last attempt) | — |
 
-> **Gate**: `ward scorecard --window 7d` renders γ_cheap, ε, verification pass %; `ward experiment watchdog --check` reports stalled experiment claims read-only — reset/void stays a human decision (see spec for the stated policy question).
+> **Gate**: `ward kpis --window 7d` renders cheap-hit %, escalation %, verify pass %; `ward experiment watchdog --check` reports stalled experiment claims read-only — reset/void stays a human decision (see spec for the stated policy question).
 
 ---
 
@@ -62,16 +62,20 @@ All specs derived from: (a) internal control-engineering case study (`.arch/refl
 
 ## Success Criteria (System-Level)
 
-When all specs are implemented, `ward brief` will show:
+Every figure below is **computed from real state at run time** — the specs add
+no constants:
+
 ```
-expired-claims-freed: 2
-drift_count: 0
-active-stale-claims: 0
-portable_local_count: 5
-cheap-hit-rate: 35%  (via scorecard)
+ward brief --json (P0.3): stale_claims[].mins_aged is a computed number, never "30+"
+ward brief (P0.1)      : expired-claims-freed  (already live today)
+ward tick --heal (P0.2): drift counts every non-verified local accepted artifact
+ward kpis --window 7d  : cheap-hit %, escalation %, verify pass % from routing_decisions
+ward experiment watchdog --check : lists stalled claims, read-only
 ```
 
-And `ward scorecard --window 7d` will render all KPIs with targets, enabling gain tuning.
+And `ward kpis --window 7d` renders the control variables with targets,
+enabling gain tuning. The existing outcome-based `ward scorecard` remains
+unchanged.
 
 ---
 

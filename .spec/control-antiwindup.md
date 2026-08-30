@@ -1,37 +1,46 @@
-# Spec: anti-windup claim expiry & enforcement (close the claim integrator)
+# Spec: anti-windup claim expiry — validate the built mechanism (gap = age telemetry)
 
-## Purpose
-The claim system allocates work to agents with a TTL (`expires_at`). When agents crash or abandon tasks, claims remain `claimed` indefinitely — the integrator winds up, saturating the pool with stale locks while `brief` reports `expired-claims-freed=0` every sweep. This is the textbook integrator windup: capacity reports healthy while actual throughput is zero.
+## Honest framing: the mechanism is already built
 
-## Signals (what good looks like)
-- `ward tick --sweep` (and `brief`) calls `SweepExpiredClaims` which:
-  - Atomically frees claims where `status='claimed' AND expires_at < now`
-  - Resets the associated task to `open` so it re-enters the pool
-  - Returns count of freed claims
-- `ward brief` prints: `expired-claims-freed=N`, `active-stale-claims=M`, `longest-claim-age=Hh`
-- `ward brief --json` includes: `expired_claims_freed`, `active_stale_claims`, `longest_claim_age_hours`
+Audited against the code. `SweepExpiredClaims` exists, is wired into both
+`tick` and `brief`, is printed, and is tested:
 
-## What's kept / changed
-- **New**: `store.SweepExpiredClaims()` — atomic UPDATE with `RETURNING` (or two-statement: UPDATE then SELECT) that frees expired claims and resets their tasks to `open`.
-- **New**: `tick.go` calls `SweepExpiredClaims` before any other sweep; logs freed claim IDs.
-- **Changed**: `brief.go` — computes `expired_claims_freed` (from last sweep), `active_stale_claims` (claims where `status='claimed' AND expires_at < now`), `longest_claim_age_hours` (max of `now - claimed_at` for active claims).
-- **Kept**: claim creation, atomic claim (`TakeTask`), TTL on claim creation.
+- `store.SweepExpiredClaims()` — `internal/store/artifacts.go:120`. Marks the
+  claim artifact `superseded`/reason `expired` and clears `claim_topic` (the
+  unique slot), so an expired un-released claim can never block re-claim.
+- Runs in `ward tick` — `internal/cli/tick.go:103` (prints `expired claims freed=%d`).
+- Runs in `ward brief` — `internal/cli/brief.go:68`, surfaced as
+  `claims_expired` (`brief.go:72`) and printed as `expired-claims-freed=%d`
+  (`brief.go:307`).
+- Tested — `TestSweepExpiredClaims`, `internal/store/store_test.go:187`.
 
-## Deliberately NOT built
-- No claim heartbeats / agent liveness pings — over-engineering. TTL + sweep is the honest, auditable bound.
-- No "soft" grace period — TTL is the contract; expired = free.
+The prior version of this spec falsely claimed brief "reports
+expired-claims-freed=0 every sweep" and that the sweep was new. That is wrong
+on both counts. There is no separate `claims` table and no "task state" to
+reset: in Ward a claim is an artifact row (`kind='claim'` + `claim_topic`),
+so "freeing" means supersede + clear slot, and the topic is immediately
+re-claimable.
 
-## Open questions
-- Should `SweepExpiredClaims` also free claims with `expires_at=NULL`? No — `NULL` = no expiry = permanent until human drops.
+## The actual remaining gap
 
-## Verification gate
+Not the sweep mechanism — the **age telemetry**. `brief` reports freed counts
+and stale claim IDs/holders, but with a hardcoded age string (`"mins_aged":
+"30+"`, `internal/cli/brief.go:156`) rather than a computed age. That work is
+tracked separately in `.spec/control-claim-age.md`. Beyond it, the
+anti-windup mechanism needs no code.
+
+## Verification gate (regression run, no build expected)
+
 ```bash
-# Unit
+# Mechanism is built + tested; gate is proof, not work.
 go test ./internal/store/... -run TestSweepExpiredClaims -v
 
-# Integration
-ward debug insert-claim --task-id "test-windup-01" --ttl "-1h" 2>/dev/null || true
-ward tick --sweep
-ward brief --json | jq '.expired_claims_freed, .active_stale_claims'
-# Expected: expired_claims_freed >= 1, task "test-windup-01" state == "open"
+# Integration, live:
+ward brief --json | jq '.claims_expired'   # numeric, >= 0
+ward tick | grep 'expired claims freed'    # line present
 ```
+
+Expected outcome of this spec: **no production code change**. If a sweep bug
+is found while running the gate, fix that; otherwise close with the
+claim-age spec delivering the only remaining deltas (`active_stale_claims`,
+`longest_claim_age_hours`).

@@ -1,36 +1,51 @@
-# Spec: claim age metrics in brief (observability for integrator windup)
+# Spec: computed claim age in brief (replace the hardcoded "30+")
 
-## Purpose
-Stale claims accumulate silently. `brief` reports `STALE CLAIM` but no age, no count, no severity. Adding claim age makes the integrator windup visible and actionable.
+## Honest framing: one small, precise gap
 
-## Signals (what good looks like)
-- `brief` output includes for each stale claim:
-  - `task-798321b1 (age=144h) — STALE`
-  - Summary line: `active-stale-claims=6, longest-claim-age=144h`
-- `brief --json` includes:
-  ```json
-  "active_stale_claims": 6,
-  "longest_claim_age_hours": 144,
-  "stale_claims": [
-    {"id": "task-798321b1", "age_hours": 144, "holder": "ox-alpha"},
-    ...
-  ]
-  ```
+Audited against `internal/cli/brief.go`. Everything around stale claims already
+exists: `StaleClaims(30)` (`brief.go:150`), per-claim rows with id / holder /
+title (`brief.go:154-158`), the "STALE CLAIM" next-action line (`brief.go:160`),
+and JSON output (`brief.go:213`). The ONLY gap is that the age is a literal:
+
+```go
+"mins_aged": "30+",   // brief.go:156 — hardcoded string, not computed
+```
+
+Ward already stores `claimed_at`/`expires_at` on claim artifacts
+(per `ClaimTopic` + `GetArtifact`), so the true age is derivable without a
+schema change.
+
+## Fix (the whole spec)
+
+In `internal/cli/brief.go`, replace the literal with the minutes elapsed since
+the claim's creation:
+
+- The stale-claim loop calls `GetArtifact` per id; use its `CreatedAt`
+  (or `ExpiresAt` minus TTL) to compute `min(now - created_at)`.
+- Emit `mins_aged` as a real number string, and add `age_hours` to the
+  `brief --json` stale_claims objects.
+- Human output gains the age in the STALE CLAIM line:
+  `STALE CLAIM task-... held by ox-alpha (age=144h) ...`.
+
+Exact display format is the implementer's call; the invariant is that the
+number is **computed from state**, never a constant.
 
 ## What's kept / changed
-- **New**: `brief.go` computes claim age = `now() - ClaimedAt` for each claimed task.
-- **Changed**: `brief` output formatting — stale claims show age, summary line added.
-- **Kept**: Claim creation, TTL, atomic claim logic.
 
-## Deliberately NOT built
-- No automatic alert on claim age > threshold — that's a policy for scorecard/alerting layer.
+- **Changed**: `brief.go` stale-claim emit path — computed age instead of
+  `"30+"`. Only place touched.
+- **Kept**: `StaleClaims(30)` threshold, holder/title lookup, next-action
+  generation, JSON shape.
 
 ## Verification gate
+
 ```bash
 # Unit
-go test ./internal/cli/... -run TestBriefClaimAge -v
+go test ./internal/cli/... -v
 
 # CLI
-ward brief --json | jq '.stale_claims[0].age_hours'  # >0
-ward brief | grep "active-stale-claims"
+# 1. claim a topic, wait 1min (or set CreatedAt in the past via store)
+ward brief --json | jq '.stale_claims[0].mins_aged'
+# Expected: a numeric string >= 0, NOT the literal "30+"
+ward brief | grep "STALE CLAIM"   # line shows a computed age
 ```

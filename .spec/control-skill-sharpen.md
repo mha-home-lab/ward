@@ -1,35 +1,59 @@
-# Spec: autonomous adaptation via skill sharpening (adaptation loop)
+# Spec: topic-scoped heal — the tiny real delta behind "skill sharpening"
 
-## Purpose
-Local skills (`Local=true`) degrade silently as codebase evolves. No scheduled re-verification = no adaptation. `ward skill sharpen` re-evaluates all local skills against current repo state, updating `VerifyStatus` or demoting stale assets before they poison routing.
+## Honest framing: there is no separate sharpening loop to build
+
+The prior version proposed a new `SharpenAll` loop + `ward skill sharpen`
+command, framed as an "adaptive feedback loop". Audited against the code, that
+work **already exists as `tick`**:
+
+- Iterate local accepted artifacts → ✓ `sweepVerify`, internal/cli/tick.go:23-46
+- Live-verify each → ✓ `verification.Run` (same loop)
+- Update `verify_status` on change → ✓ `SetVerify` inside the loop
+- Supersede/demote anything failing → ✓ `tick --heal`, tick.go:82-97 (acts on
+  ANY local accepted artifact now `stale`/`error`, not just fresh drift)
+
+So the "adaptation loop" is `ward tick [--heal]`, already covered. Building
+`skill sharpen` would duplicate it.
+
+## The only real delta: `--topic <tag>` scoping
+
+`tick` and `brief` re-verify **all** local accepted artifacts. Sometimes you
+want to re-verify a single skill/topic's sources (a chip says recompile; you
+want a focused heal). That is a one-flag extension to the EXISTING path:
+
+- `ward tick [--heal] --topic <tag>` — restrict `sweepVerify`'s artifact set
+  to those matching `<tag>` (reuse `SearchArtifactsTagged`/`ListArtifacts` with
+  a topic filter), then run the unchanged heal logic.
+
+No new package, no new command, no parallel runner, no `SharpenResult` matrix.
 
 ## Signals (what good looks like)
-- `ward skill sharpen --all`:
-  1. Iterates all artifacts where `Local=true`.
-  2. Runs `verification.Run(artifact, repoPath)` in parallel.
-  3. If `res.Status != artifact.VerifyStatus` → updates DB (`verify_status = res.Status`, `verified_at = now()`).
-  4. Returns matrix: `{ID, OldStatus, NewStatus, Changed}`.
-- `ward skill sharpen --topic <tag>` — scopes to artifacts with that tag.
-- Output includes summary: `sharpened=X, degraded=Y, stable=Z`.
-- Can be scheduled (cron, CI) — no interactive prompts.
+
+- `ward tick --heal --topic portable:control-antiwindup` re-verifies only that
+  tag's local artifacts, updates their `verify_status`, and supersedes the
+  failures — same output shape as `tick --heal` today.
 
 ## What's kept / changed
-- **New**: `internal/skill/sharpen.go` — `SharpenAll(repoPath) -> ([]SharpenResult, error)`.
-- **New**: `cmd/skill.go` — `skill sharpen [--all] [--topic <name>] [--json]`.
-- **Kept**: `verification.Run` logic, `Local` flag, `VerifyStatus` column.
-- **Changed**: `verification.Run` must be fast enough for batch (parallel, timeout per artifact).
+
+- **Changed**: `tick.go` — optional `--topic` filter feeding `sweepVerify`.
+  Only addition.
+- **Kept**: `sweepVerify`, `verification.Run`, heal loop, output format.
 
 ## Deliberately NOT built
-- No auto-demote to `proposed` on repeated failures — that's a policy decision, not a sensor.
-- No "skill retirement" — stale skills stay visible but marked `error`.
+
+- No `ward skill sharpen` command (it is `tick --heal`).
+- No parallelism or status matrix — the existing serial loop is sufficient.
 
 ## Verification gate
+
 ```bash
 # Unit
-go test ./internal/skill/... -run TestSharpenAll -v
+go test ./internal/cli/... -run TestTickTopicFilter -v   # added with the flag
 
 # E2E
-ward skill sharpen --all --json
-# Verify output: array of {id, old_status, new_status, changed}
-# Verify DB updated: verify_status matches live verify for all local artifacts
+# artifacts on two tags; break one tag's dependency
+ward tick --heal --topic <broken-tag> --json
+# Expected: only <broken-tag> artifacts in changed[]; other tag untouched
+ward tick --heal
+# Expected: no remaining change for <broken-tag> (already healed); others still clean
 ```

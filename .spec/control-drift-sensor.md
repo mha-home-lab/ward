@@ -1,35 +1,66 @@
-# Spec: unbiased real-time drift sensor (honest sensor, no bias)
+# Spec: unbiased drift reporting (count every failing local artifact)
 
-## Purpose
-Current drift detection only flags `verified -> error` transitions. Artifacts created as `accepted` (never verified) that degrade to `error` are invisible — `drift=0` reported while 87% of local artifacts are broken. The sensor must measure **absolute variance**: any local artifact where `live_verify != stored verify_status`.
+## Honest framing: narrower than previously claimed
 
-## Signals (what good looks like)
-- `ward brief --json` reports `drift_count=N` where N = count of local artifacts with `VerifyStatus != live_verify_result` (any mismatch, including `accepted->error`, `unknown->error`).
-- `ward tick --heal` re-runs live verification on **all drifted artifacts** and updates their `VerifyStatus` to match reality.
-- After `tick --heal`, `brief` shows `drift=0`, `healed=N`.
-- Drift sensor runs fast: parallel verification with timeout, skip non-local artifacts.
+The prior version repeated an unsourced stat ("87% of local artifacts are
+broken", from the case study reflection) and proposed a new `DetectDrift`/
+`DetectAllDrift` scanner + parallel batch loop. That overbuilds what is needed,
+because most of it already exists and works:
 
-## What's kept / changed
-- **New**: `verification.DetectDrift(artifact, repoPath)` — returns `{Expected, Actual, IsDrifted}` for a single artifact.
-- **New**: `verification.DetectAllDrift(repoPath)` — scans all local artifacts, runs live verify in parallel, returns slice of `DriftReport`.
-- **Changed**: `tick.go` — uses `DetectAllDrift`; for each drifted artifact, updates DB `verify_status = Actual`, `verified_at = now()`.
-- **Changed**: `brief.go` — calls `DetectAllDrift` (or cached result) to compute `drift_count` honestly.
-- **Kept**: `VerifyStatus` column, `Local` flag, `verification.Run` logic.
+- `sweepVerify` (internal/cli/tick.go:23-46) already re-runs every
+  **local accepted** artifact's verify_cmd LIVE and persists the outcome
+  (`SetVerify`) — this is exactly "absolute-variance checking".
+- `fail()` already classifies honestly (internal/verification/verify.go:136-143):
+  previously-verified → `stale`, never-verified → `error`.
+- `tick --heal` (internal/cli/tick.go:82-97) **is already unbiased**: it
+  supersedes ANY local accepted artifact whose post-sweep status is `stale` or
+  `error`, regardless of whether it drifted this sweep or was a persisting
+  zombie from a previous tick. It is not limited to verified→failed.
+
+The one genuine bias: the **reported drift count** (internal/cli/tick.go:38-40)
+increments ONLY on `verified -> non-verified` transitions *within this sweep*.
+So an artifact that failed a previous tick and is healed now is counted as a
+`change` but never as `drift`; and the "drift" headline understates how much of
+the local memory is failing. The tree's health metric (brief.go:121-129) has
+the same shape (counts only `verified`); it is fine as-is because it reports
+absolute verified/accepted/proposed, not a `drift` figure.
+
+## Fix (small)
+
+Make the reported `drift` count absolute, not transition-only: after the sweep
+loop, count local accepted artifacts whose live `verify_status` is non-verified
+(`stale` or `error`) — both fresh failures this sweep and persisting ones.
+
+- `internal/cli/tick.go` `sweepVerify`: compute `drift` = count of evaluated
+  artifacts whose `res.Status != "verified"`, instead of only
+  `before=="verified" && res.Status!="verified"`.
+- `internal/cli/brief.go:257` message: generalize "previously-verified
+  artifact(s) went STALE" to a count of failing artifacts (still instructive —
+  it drives the "treat as miss" guidance). No behavior change elsewhere.
+
+`--heal` stays exactly as-is: it already closes the loop over all failing
+local artifacts.
 
 ## Deliberately NOT built
-- No "drift rate" derivative control yet — that's a future gain tuning, not sensor honesty.
-- No predictive drift — sensor is purely reactive/measurement.
+
+- No new `DetectDrift`/`DetectAllDrift` package, no parallel batch — the
+  per-sweep loop already does the work serially and correctly.
+- No "drift rate" derivative — future gain tuning, not sensor honesty.
 
 ## Verification gate
+
 ```bash
 # Unit
-go test ./internal/verification/... -run TestDetectDrift -v
+go test ./internal/cli/... ./internal/verification/... -v
 
-# E2E
-# 1. Create local artifact with accepted status, verify_cmd that passes now
-# 2. Break its dependency (delete file, change code)
-ward brief --json | jq '.drift_count'  # must be 1
-ward tick --heal
-ward brief --json | jq '.drift_count'  # must be 0
-# Artifact's verify_status must now be "error"
+# E2E (drift must reflect failures regardless of starting status)
+# 1. promote a local artifact with a verify_cmd; run `ward tick` (verify passes: drift=0)
+# 2. break its dependency; run `ward tick --heal`
+#    Expected: drift >= 1 (the failing artifact is counted), then superseded (healed)
+# 3. run `ward tick --heal` again on an already-failed artifact
+#    Expected: drift counts it even though it was NOT verified-before (error -> still failing)
+ward brief --json | jq '.drift'   # counts every non-verified local accepted artifact
+
+# Heal loop regression (already unbiased, must stay that way):
+# a local artifact already in "error" (never verified) must be superseded by --heal
 ```
