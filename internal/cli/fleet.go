@@ -16,6 +16,11 @@ func verificationRun(a store.Artifact, repo string) verification.Result {
 // every accepted artifact carrying a topic tag, superseding drift under --heal.
 // This is tick scoped to a topic — the standing proof that tagged knowledge
 // still holds, and the mechanism that keeps topic-vouching honest.
+//
+// Trust boundary parity with tick's sweepVerify: imported (Local=false)
+// artifacts are never verified (their verify_cmd must not execute), never
+// drift-counted, and never superseded — an import is not drift just because
+// it cannot be live-re-verified here.
 func waveCmd() *cobra.Command {
 	var repo string
 	var heal bool
@@ -52,6 +57,13 @@ func waveCmd() *cobra.Command {
 			results := make([]result, 0)
 			verified, drifted := 0, 0
 			for _, a := range arts {
+				// Same guard tick's sweepVerify has (tick.go:31): imported
+				// artifacts cannot be live-verified — the trust boundary means
+				// verification.Run returns "unknown" without executing. That is
+				// NOT drift; counting or healing it would silently wipe imports.
+				if !a.Local {
+					continue
+				}
 				if a.VerifyCmd == "" {
 					results = append(results, result{ID: a.ID, Before: a.VerifyStatus, After: "skipped", NoVerify: true})
 					continue
@@ -60,15 +72,19 @@ func waveCmd() *cobra.Command {
 				before := a.VerifyStatus
 				_ = s.SetVerify(a.ID, res.Status)
 				r := result{ID: a.ID, Before: before, After: res.Status}
-				if res.Status == "verified" {
+				switch res.Status {
+				case "verified":
 					verified++
-				} else {
+				case "stale", "error":
 					drifted++
 					if heal {
 						if err := s.Supersede(a.ID, "", "wave drift"); err == nil {
 							r.Healed = true
 						}
 					}
+				default:
+					// "unknown" (e.g. unexecutable verification kind): a config
+					// problem, not drift — never counted, never superseded.
 				}
 				r.Detail = res.Detail
 				results = append(results, r)

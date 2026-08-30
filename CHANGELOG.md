@@ -3,6 +3,31 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## [v0.9.6] — 2026-08-30 — fix: `ward wave --heal` respects the trust boundary (imported artifacts are not drift)
+
+A reviewer's check of the skill roadmap caught what no spec did: `waveCmd`
+verified every topic-tagged artifact with `verification.Run`, which by design
+returns `"unknown"` for **imported** (`Local=false`) artifacts because their
+verify_cmd must never execute. The wave loop treated anything non-`verified`
+as drifted and, under `--heal`, **superseded imported artifacts purely because
+they were ineligible for live verification** — so a topic mixing localized and
+still-imported knowledge would silently lose the imports. Tick's `sweepVerify`
+had always guarded `!a.Local`; wave did not.
+
+### Fixed
+
+- **`ward wave` skips `Local=false` artifacts entirely** (tick parity): never
+  verified, never drift-counted, never superseded. An import is not drift just
+  because it cannot be re-verified here.
+- **Wave drift is now `stale`/`error` only** (matching tick's absolute-drift
+  definition): an `unknown` result for a LOCAL artifact (e.g. unexecutable
+  verification kind) is a config problem, not drift — it is neither counted
+  nor superseded.
+- Regression gate `TestWaveHealSparesImportedArtifacts` proves both halves:
+  an imported-then-verified artifact tagged like a drifted local one survives
+  `--heal` untouched, while the real local drift on the same tag is
+  superseded with reason `"wave drift"`.
+
 ## [v0.9.5] — 2026-08-30 — control-plane: honest sensors, cheap-hit KPIs, skill localization
 
 The reflection control study (`.arch/reflection-control-study.md`) found three
