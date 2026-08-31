@@ -174,6 +174,18 @@ func briefCmd() *cobra.Command {
 			}
 
 			b.Next = nextActions(b)
+			// Loop closer (control-capture-loop): surface it here so even if the
+			// acting agent ignored its own handoff warning, the NEXT session sees
+			// the gap at start and can decide whether to backfill. brief reads the
+			// flag persisted on the most recent handoff_log row (set when that
+			// handoff observed commits with no captures). Prepend so it reads as
+			// the top of the "do next" list. A read error just skips the line —
+			// brief is a best-effort session report and must not gate a session
+			// start on the capture-gap bookkeeping.
+			if prev, herr := s.LastHandoff(); herr == nil && prev != nil && prev.CaptureGap {
+				line := fmt.Sprintf("previous session may have skipped capture (%d commits, 0 new artifacts) — review and backfill if real lessons were found (ward memory put --local --tags portable:<topic> --verify-cmd %q)", prev.Commits, "<cmd>")
+				b.Next = append([]string{line}, b.Next...)
+			}
 			if compact {
 				// Budget-aware mode (rd:c2 a5fee2fa): small models choke on
 				// unbounded context; trim summaries and drop the health block.

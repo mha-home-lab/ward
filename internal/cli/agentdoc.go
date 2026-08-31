@@ -73,7 +73,14 @@ never re-solve solved problems and never trust stale claims.
    A conflict is a hard stop: pick different work, never proceed in parallel.
 6. RECORDING RESULTS IS AUTOMATIC: successful runs capture store-local
    artifacts tagged by node id. Do NOT hand-type ward memory put; never write
-   a verify_cmd you would not run yourself.
+   a verify_cmd you would not run yourself. THE ONE EXCEPTION: work done
+   OUTSIDE ward task run (a green-field batch, an exploratory session) that
+   surfaces a new, generalizable lesson must be captured manually — as
+       ward memory put --local --tags portable:<topic> \
+           --summary "..." --content "..." --verify-cmd "<cmd>"
+   before ward memory handoff. This is the case hand-typing is correct, not
+   a violation of this step: compounding requires knowledge to flow back in
+   from off-pool work, not just out.
 7. BEFORE ENDING: run  ward memory handoff  so the next session inherits
    incomplete work, open runs, and stale candidates.
 8. FAILURE POLICY: two escalating failures exhaust the budget and the run

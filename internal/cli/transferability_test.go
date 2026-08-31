@@ -299,3 +299,65 @@ func TestCaptureWarnsButDoesNotBlock(t *testing.T) {
 		t.Fatalf("capture must not change artifact status on a portable warning, got %q", a.Status)
 	}
 }
+
+// TestMemoryPutLint: the manual path (ward memory put) fires the SAME shared
+// transferability lint as captureNode, so a portable:* put with cheat-sheet
+// content warns on stderr instead of silently bypassing the automatic path.
+func TestMemoryPutLint(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WARD_HOME", home)
+	chdirTemp(t)
+
+	cmd := memoryPutCmd()
+	setPutFlags(cmd, t, "x", "true", "shell", "agent", "true")
+	if err := cmd.Flags().Set("tags", "portable:test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("content", "collatz prints exactly 'Error'"); err != nil {
+		t.Fatal(err)
+	}
+	buf, restore := captureStderr()
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	restore()
+	if !strings.Contains(buf.String(), "instance-specific") {
+		t.Fatalf("memory put must fire the shared transferability lint on stderr, got:\n%s", buf.String())
+	}
+
+	// The lint is warn-only: the artifact is still stored (accepted, light).
+	s, err := store.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB.Close()
+	all, _ := s.ListArtifacts("accepted", "", "", 10)
+	if len(all) != 1 {
+		t.Fatalf("expected 1 accepted artifact, got %d", len(all))
+	}
+}
+
+// TestWarnIfCheatSheetSilentWhenNotPortable: the shared helper stays silent for
+// non-portable tags (no lint fires on ordinary captures).
+func TestWarnIfCheatSheetSilentWhenNotPortable(t *testing.T) {
+	buf, restore := captureStderr()
+	warnIfCheatSheet([]string{"topic:auth"}, "x", "collatz prints exactly 'Error'")
+	restore()
+	if buf.String() != "" {
+		t.Fatalf("expected no output for non-portable tags, got:\n%s", buf.String())
+	}
+}
+
+// TestWarnIfCheatSheetFirstPortableOnly: only the first portable:* tag is
+// scored, matching the prior captureNode behavior.
+func TestWarnIfCheatSheetFirstPortableOnly(t *testing.T) {
+	buf, restore := captureStderr()
+	warnIfCheatSheet([]string{"portable:one", "portable:two"}, "x", "collatz prints exactly 'Error'")
+	restore()
+	if !strings.Contains(buf.String(), "portable:one") {
+		t.Fatalf("expected first portable tag to be scored, got:\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), "portable:two") {
+		t.Fatalf("expected only the first portable tag to be scored, got:\n%s", buf.String())
+	}
+}

@@ -3,6 +3,52 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## [v0.9.10] — 2026-09-01 — close the capture loop for off-pool work
+
+Spec `.spec/control-capture-loop.md`. Auto-capture only fired inside `ward task
+run`; a free-standing agent session (a green-field batch, an exploratory run)
+read from the vault but had no path back into it, so genuinely transferable
+lessons found off-pool were never recorded — compounding required knowledge to
+flow back in, not just out. This closes that loop: protocol guidance, a shared
+lint on both capture paths, a handoff-time gap detector, and a next-session
+surface.
+
+### Added
+
+- **Off-pool capture instruction in the agent protocol**: `agentdoc.go` step 6
+  now states that work done outside `ward task run` which surfaces a new,
+  generalizable lesson must be captured manually (`ward memory put --local
+  --tags portable:<topic> --verify-cmd "<cmd>"`) before handoff — the one case
+  hand-typing is correct, not a violation.
+- **Shared transferability lint** (`internal/cli/transferlint.go`): the
+  `portable:*` cheat-sheet warning moved out of `captureNode` into
+  `warnIfCheatSheet(tags, summary, content)`, now fired by **both** the
+  automatic capture path and the manual `memory put` path — so a manual
+  capture can no longer silently bypass the warning the automatic path gives.
+- **`handoff_log` capture-gap check**: `ward memory handoff` compares against
+  the previous handoff (`internal/observe` `GitCommitsSince`); when commits
+  happened with zero new artifacts, it warns loudly and sets
+  `capture_gap_suspected: true` in `--json`. New migration v11 creates the
+  `handoff_log(id, at, head_sha, capture_gap, commits)` table.
+- **Loop-closer in `ward brief`**: the next session reads the flag persisted on
+  the most recent `handoff_log` row and prepends a
+  "previous session may have skipped capture (N commits, 0 new artifacts)"
+  next-action — so even an agent that ignores its own handoff warning is
+  superseded by the next session's start. The flag and commit count are
+  persisted on the row so the next brief can read them.
+
+### Kept
+
+- On-pool auto-capture (`autoCapture`/`captureNode`) behavior is unchanged.
+- Warn-never-block posture: capture still never blocks, and a session that
+  genuinely learned nothing new is never forced to invent a capture.
+
+### Fixed
+
+- The gap check and handoff logging now propagate database errors instead of
+  swallowing them: a failed read is treated as "unknown", never as "no gap",
+  so a real capture miss can't be silently masked or fabricated.
+
 ## [v0.9.9] — 2026-08-30 — hang-proof live sweep: verify commands are bounded and brief is never silent
 
 `ward brief`'s opening live sweep re-executes every store-local artifact's

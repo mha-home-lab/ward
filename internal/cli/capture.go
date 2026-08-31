@@ -6,12 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/mha-home-lab/ward/internal/orchestration"
 	"github.com/mha-home-lab/ward/internal/store"
-	"github.com/mha-home-lab/ward/internal/transferability"
 	"github.com/spf13/cobra"
 )
 
@@ -58,18 +56,9 @@ func captureNode(s *store.Store, wf *orchestration.Workflow, node orchestration.
 	// portable:* topic, warn (non-fatal) when the content reads like a
 	// repo-specific cheat-sheet instead of a generalizable mechanism. This is a
 	// heuristic firing at the point of least context, so it NEVER blocks or
-	// changes the artifact's status — the hard gate lives at pack.
-	for _, t := range tags {
-		if strings.HasPrefix(t, "portable:") {
-			if r := transferability.Score(t, summary, content); r.CheatSheet {
-				fmt.Fprintln(os.Stderr, "warning: portable:"+strings.TrimPrefix(t, "portable:")+" capture looks instance-specific (cheat-sheet score "+strconv.Itoa(r.Score)+"); rewrite as a generalizable mechanism before packing to the global vault")
-				for _, s := range r.Signals {
-					fmt.Fprintln(os.Stderr, "  - "+s)
-				}
-			}
-			break
-		}
-	}
+	// changes the artifact's status — the hard gate lives at pack. Shared with
+	// the manual path (memoryPutCmd) via warnIfCheatSheet.
+	warnIfCheatSheet(tags, summary, content)
 
 	a := store.Artifact{
 		Kind:       kind,

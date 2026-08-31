@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mha-home-lab/ward/internal/observe"
 	"github.com/mha-home-lab/ward/internal/store"
 	"github.com/mha-home-lab/ward/internal/verification"
 	"github.com/spf13/cobra"
@@ -221,6 +222,7 @@ func memoryPutCmd() *cobra.Command {
 				VerifyCmd: verifyCmd, VerifyKind: verifyKind, Local: isLocal, Ceremony: ceremony,
 			}
 			warnIfMisplaced(splitCSV(tags), cliProjectFlag(cmd))
+			warnIfCheatSheet(splitCSV(tags), summary, content)
 			id, err := s.UpsertArtifact(a)
 			if err != nil {
 				return failErr(err)
@@ -491,10 +493,39 @@ func memoryHandoffCmd() *cobra.Command {
 					"why": "open run: " + r.Status + " waiting=" + r.Waiting, "attempted_at": "",
 				})
 			}
+			// Capture gap check (control-capture-loop): compare against the
+			// previous handoff. If commits happened but no new artifacts were
+			// captured since then, the session may have found transferable
+			// lessons without recording them — a count, never a semantic
+			// judgment, and only a warning (never a block).
+			repoRoot := filepath.Dir(s.Home)
+			commitsSince, newCaptures, captureGap, prevAt, gapErr := detectCaptureGap(s, repoRoot)
+			if gapErr != nil {
+				// The gap status is UNKNOWN. Refuse to claim a clean handoff
+				// rather than silently masking a real capture miss.
+				return failErr(fmt.Errorf("capture gap check failed: %w", gapErr))
+			}
+			if captureGap {
+				fmt.Fprintf(os.Stderr, "warning: %d commit(s) since last handoff but 0 new artifacts captured — if the session found new, generalizable lessons, capture them manually (ward memory put --local --tags portable:<topic> --verify-cmd \"<cmd>\") before handing off\n", commitsSince)
+			}
+			now := store.NowISO()
+			headSHA := observe.GitHeadSHA(repoRoot)
+			if _, err := s.LogHandoff(now, headSHA, captureGap, commitsSince); err != nil {
+				return failErr(fmt.Errorf("persist handoff: %w", err))
+			}
+
 			handoff := map[string]any{
-				"incomplete": incomplete,
-				"summary":    fmt.Sprintf("%d proposed, %d stale, %d open runs", len(proposed), len(stale), len(runViews)),
-				"items":      items,
+				"incomplete":            incomplete,
+				"summary":               fmt.Sprintf("%d proposed, %d stale, %d open runs", len(proposed), len(stale), len(runViews)),
+				"items":                 items,
+				"capture_gap_suspected": captureGap,
+			}
+			if prevAt != "" {
+				handoff["since_last"] = map[string]any{
+					"previous_at":   prevAt,
+					"commits":       commitsSince,
+					"new_artifacts": newCaptures,
+				}
 			}
 			if jsonOut {
 				printJSON(handoff)
@@ -584,6 +615,29 @@ var (
 	errNeedQuery      = fmt.Errorf("search needs a query")
 	errNeedID         = fmt.Errorf("an artifact id is required")
 )
+
+// detectCaptureGap compares the span since the LAST handoff (if any): if
+// commits happened but no new artifacts were captured, a gap is suspected. A
+// count, never a semantic judgment — whether real lessons were missed is left
+// to a human or the next agent. Returns zeros and no error when there is no
+// prior handoff row. A non-nil error means the read failed and the gap status
+// is UNKNOWN — the caller must treat that as "do not claim a clean handoff",
+// never as "no gap" (that would mask real capture misses).
+func detectCaptureGap(s *store.Store, repoRoot string) (commitsSince, newCaptures int, gap bool, prevAt string, err error) {
+	prev, err := s.LastHandoff()
+	if err != nil {
+		return 0, 0, false, "", err
+	}
+	if prev == nil {
+		return 0, 0, false, "", nil
+	}
+	commitsSince = observe.GitCommitsSince(repoRoot, prev.HeadSHA)
+	newCaptures, err = s.CountArtifactsSince(prev.At)
+	if err != nil {
+		return 0, 0, false, "", err
+	}
+	return commitsSince, newCaptures, commitsSince > 0 && newCaptures == 0, prev.At, nil
+}
 
 func splitCSV(s string) []string {
 	if s == "" {

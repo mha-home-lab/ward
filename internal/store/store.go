@@ -156,6 +156,26 @@ func (s *Store) migrate() error {
 		return err
 	}
 	_, err = s.DB.Exec("PRAGMA user_version = 10")
+	if err != nil {
+		return err
+	}
+	// v11 (control-capture-loop): handoff_log records one row per `ward memory
+	// handoff` so the NEXT call can detect a capture gap — commits happened with
+	// no new artifacts captured since the previous handoff. The gap check is
+	// deterministic (a count, never a semantic judgment) and warn-only. The
+	// capture_gap flag is persisted on the row so a LATER `ward brief` can
+	// surface the previous session's gap to the next agent (the loop-closer),
+	// not just warn the acting agent at its own handoff.
+	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS handoff_log (
+		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		at           TEXT NOT NULL,
+		head_sha     TEXT NOT NULL,
+		capture_gap  INTEGER NOT NULL DEFAULT 0,
+		commits      INTEGER NOT NULL DEFAULT 0
+	)`); err != nil {
+		return err
+	}
+	_, err = s.DB.Exec("PRAGMA user_version = 11")
 	return err
 }
 
