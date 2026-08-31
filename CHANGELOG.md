@@ -3,6 +3,33 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## [v0.9.9] — 2026-08-30 — hang-proof live sweep: verify commands are bounded and brief is never silent
+
+`ward brief`'s opening live sweep re-executes every store-local artifact's
+verify_cmd with **no timeout**, and `brief` prints nothing until it finishes —
+so a single hung gate (`go test ./...`, `docker compose up -d`, a stuck daemon)
+made the session bootstrap look frozen for minutes with zero output.
+
+### Changed
+
+- **Verify commands are now deadline-bounded**: `internal/verification` runs
+  `shell`/`grep`/`golden` gates via `exec.CommandContext` with a configurable
+  timeout (`WARD_VERIFY_TIMEOUT`, a Go duration; default 180s). A gate that
+  outlives the deadline is SIGKILLed — along with its whole process group
+  (darwin/linux), so no orphaned build/test survives — and the artifact is
+  reported as an **error** (or **stale** if previously verified), so the sweep
+  always terminates and drift is never silently trusted.
+- **`ward brief` is never silent**: a `sweeping: live re-verification…` progress
+  line is printed before the sweep (human mode; kept out of `--json` so the
+  output stays a single object), so a slow-but-legit verify reads as progress,
+  not a frozen command.
+
+### Fixed
+
+- Revolves around the observable failure described in the session: `ward brief`
+  hung >60s with no output from any project store whose local artifacts carry
+  real build/test gates.
+
 ## [v0.9.8] — 2026-08-30 — control-transferability lint: instance-specific cheat-sheets never reach the global vault
 
 Spec `.spec/control-transferability-lint.md` — a deterministic, regex-only

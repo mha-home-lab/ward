@@ -52,6 +52,15 @@ func briefCmd() *cobra.Command {
 			b.Version = Version
 			b.Store = s.Home
 
+			// Live sweep first is the whole point (drift caught now is a wrong
+			// route prevented), but re-verifying executes each verify_cmd, which
+			// can take seconds on real gates. Emit a progress line BEFORE the
+			// sweep so a slow verify reads as "sweeping…" and not a frozen
+			// command. Omitted in --json to keep the output a single object.
+			if !jsonOut {
+				fmt.Printf("== ward brief ==\nsweeping: live re-verification of store-local artifacts…\n")
+			}
+
 			// 1. Live sweep: drift caught now is a wrong route prevented later.
 			var changes []verifyChange
 			b.Checked, b.Drift, changes, err = sweepVerify(s, repo)

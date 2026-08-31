@@ -4,8 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/mha-home-lab/ward/internal/store"
 )
@@ -103,4 +106,61 @@ func sha256Sum(t *testing.T, path string) string {
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+// TestRunTimeoutBoundsHungVerify proves the live sweep can never hang forever
+// on a single verify_cmd: a command that outlives WARD_VERIFY_TIMEOUT is killed
+// and reported as an error/stale instead of blocking brief/tick. The command
+// sleeps 5s; with a 100ms timeout the whole Run must return in well under a
+// second, and no orphaned `sleep 5` may survive (the process group is reaped).
+func TestRunTimeoutBoundsHungVerify(t *testing.T) {
+	t.Setenv("WARD_VERIFY_TIMEOUT", "100ms")
+	art := store.Artifact{Kind: "solution", Local: true, VerifyKind: "shell",
+		VerifyCmd: "sleep 5"}
+
+	start := time.Now()
+	got := Run(art, "")
+	elapsed := time.Since(start)
+
+	if elapsed > 2*time.Second {
+		t.Fatalf("timed-out verify returned too slowly (%s): the sweep would still block", elapsed)
+	}
+	if got.Status != "error" {
+		t.Fatalf("hung verify must be error, got %s (%s)", got.Status, got.Detail)
+	}
+	if !strings.Contains(got.Detail, "timed out") {
+		t.Fatalf("detail must explain the timeout, got %q", got.Detail)
+	}
+
+	// A previously-verified artifact that now times out is STALE (cannot be
+	// trusted), matching the drift semantics of any other failed re-verify.
+	stalish := art
+	stalish.VerifyStatus = "verified"
+	if g := Run(stalish, ""); g.Status != "stale" {
+		t.Fatalf("previously-verified timeout must be stale, got %s", g.Status)
+	}
+
+	// The whole process tree must be reaped: no orphaned `sleep 5` survives.
+	// pgrep excludes its own process, so any output is a real orphaned sleep.
+	time.Sleep(50 * time.Millisecond)
+	if surviving(t) != 0 {
+		t.Fatalf("orphaned verify process survived the timeout")
+	}
+}
+
+// surviving counts running `sleep 5` processes (pgrep excludes itself).
+func surviving(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", "pgrep -f 'sleep 5' | wc -l")
+	out, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, r := range strings.TrimSpace(string(out)) {
+		if r >= '0' && r <= '9' {
+			n = n*10 + int(r-'0')
+		}
+	}
+	return n
 }

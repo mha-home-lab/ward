@@ -1,13 +1,14 @@
 package verification
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mha-home-lab/ward/internal/store"
 )
@@ -16,6 +17,24 @@ import (
 type Result struct {
 	Status string // verified | stale | error | unknown
 	Detail string
+}
+
+// DefaultTimeout bounds a single verify command execution. A verify_cmd that
+// outlives this is killed and reported as an error/stale rather than letting the
+// live sweep (ward brief / ward tick) block forever on a hung build, test, or
+// daemon-start. Overridable via WARD_VERIFY_TIMEOUT (Go duration, e.g. "90s").
+const DefaultTimeout = 180 * time.Second
+
+// verifyTimeout is the per-command deadline, read once from WARD_VERIFY_TIMEOUT
+// so a malformed value fails the process loudly at command build time instead of
+// silently ignoring an operator's intent.
+func verifyTimeout() time.Duration {
+	if v := os.Getenv("WARD_VERIFY_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return DefaultTimeout
 }
 
 // Run executes an artifact's verify command ONLY when the artifact is
@@ -59,12 +78,13 @@ func golden(a store.Artifact, repoRoot string) Result {
 	if err != nil {
 		return fail(a, fmt.Sprintf("cannot read golden file %s: %v", expectedPath, err))
 	}
-	cmd := exec.Command("sh", "-c", command)
-	if repoRoot != "" {
-		cmd.Dir = repoRoot
-	}
-	got, err := cmd.Output()
+	ctx, cancel := context.WithTimeout(context.Background(), verifyTimeout())
+	defer cancel()
+	got, err := runVerify(ctx, repoRoot, "sh", "-c", command)
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fail(a, fmt.Sprintf("golden command %q timed out after %s", command, verifyTimeout()))
+		}
 		return fail(a, fmt.Sprintf("command failed: %v", err))
 	}
 	if strings.TrimRight(string(got), "\n") != strings.TrimRight(string(want), "\n") {
@@ -78,22 +98,26 @@ func grep(a store.Artifact, repoRoot string) Result {
 	if pattern == "" || path == "" {
 		return Result{Status: "error", Detail: "grep verify_cmd must be 'pattern::path'"}
 	}
-	cmd := exec.Command("grep", "-rq", "--", pattern, path)
-	if repoRoot != "" {
-		cmd.Dir = repoRoot
-	}
-	if err := cmd.Run(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), verifyTimeout())
+	defer cancel()
+	_, err := runVerify(ctx, repoRoot, "grep", "-rq", "--", pattern, path)
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return Result{Status: "error", Detail: fmt.Sprintf("grep %q in %s timed out after %s", pattern, path, verifyTimeout())}
+		}
 		return fail(a, fmt.Sprintf("pattern %q not found in %s (repo=%s)", pattern, path, repoRoot))
 	}
 	return ok(a)
 }
 
 func shell(a store.Artifact, repoRoot string) Result {
-	cmd := exec.Command("sh", "-c", a.VerifyCmd)
-	if repoRoot != "" {
-		cmd.Dir = repoRoot
-	}
-	if err := cmd.Run(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), verifyTimeout())
+	defer cancel()
+	_, err := runVerify(ctx, repoRoot, "sh", "-c", a.VerifyCmd)
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fail(a, fmt.Sprintf("verify_cmd %q timed out after %s", a.VerifyCmd, verifyTimeout()))
+		}
 		return fail(a, fmt.Sprintf("command failed: %v", err))
 	}
 	return ok(a)
