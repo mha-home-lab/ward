@@ -62,7 +62,7 @@ func TestHandoffCaptureGap(t *testing.T) {
 	defer s.DB.Close()
 
 	// No prior handoff row -> no gap.
-	_, _, gap, prevAt, err := detectCaptureGap(s, ".")
+	_, _, _, gap, prevAt, err := detectCaptureGap(s, ".")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,35 +77,56 @@ func TestHandoffCaptureGap(t *testing.T) {
 	s.LogHandoff(firstAt, observe.GitHeadSHA("."), false, 0)
 	mustCommit(t, dir, "off-pool work")
 
-	c, n, gap, prevAt, err := detectCaptureGap(s, ".")
+	c, _, newPortable, gap, prevAt, err := detectCaptureGap(s, ".")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !gap {
-		t.Fatalf("expected capture gap after a commit with no artifacts (commits=%d captures=%d)", c, n)
+		t.Fatalf("expected capture gap after a commit with no captures (commits=%d portable=%d)", c, newPortable)
 	}
 	if c < 1 {
 		t.Fatalf("expected >=1 commit since last handoff, got %d", c)
 	}
-	if n != 0 {
-		t.Fatalf("expected 0 new captures, got %d", n)
+	if newPortable != 0 {
+		t.Fatalf("expected 0 new portable captures, got %d", newPortable)
 	}
 	if prevAt != firstAt {
 		t.Fatalf("expected prevAt=%q got %q", firstAt, prevAt)
 	}
 
-	// Add a capture -> no gap.
+	// A NON-portable capture must NOT clear the gap (the sharpening: ordinary
+	// on-pool work can't mask an off-pool discovery that was never recorded).
 	cmd := memoryPutCmd()
 	setPutFlags(cmd, t, "a lesson", "true", "shell", "agent", "true")
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	c, n, gap, _, err = detectCaptureGap(s, ".")
+	_, _, newPortable, gap, _, err = detectCaptureGap(s, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gap {
+		t.Fatalf("a non-portable capture must NOT clear the off-pool gap (portable=%d)", newPortable)
+	}
+
+	// A PORTABLE capture clears the gap.
+	cmd2 := memoryPutCmd()
+	setPutFlags(cmd2, t, "a portable lesson", "true", "shell", "agent", "true")
+	if err := cmd2.Flags().Set("tags", "portable:test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd2.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	c, _, newPortable, gap, _, err = detectCaptureGap(s, ".")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if gap {
-		t.Fatalf("must NOT flag a gap when a capture happened (commits=%d captures=%d)", c, n)
+		t.Fatalf("must NOT flag a gap once a portable capture happened (commits=%d portable=%d)", c, newPortable)
+	}
+	if newPortable < 1 {
+		t.Fatalf("expected >=1 new portable capture, got %d", newPortable)
 	}
 }
 
@@ -156,5 +177,48 @@ func TestBriefFlagsSkippedCapture(t *testing.T) {
 	restore()
 	if !strings.Contains(buf.String(), "may have skipped capture") {
 		t.Fatalf("brief must surface the prior capture gap, got:\n%s", buf.String())
+	}
+}
+
+// TestBriefLiveGapWithoutHandoff: a session that READ the vault (via brief /
+// skill install) but NEVER ran `ward memory handoff` leaves NO fresh handoff_log
+// row — yet brief must still surface the gap at the next session start via the
+// live check over commits since the LAST logged handoff. This is the exact case
+// that inspired the spec: agent 3 stopped and reported to a human without
+// handing off, so its lessons were invisible.
+func TestBriefLiveGapWithoutHandoff(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("WARD_HOME", t.TempDir())
+	gitInitRepo(t, dir)
+
+	s, err := store.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A PRIOR session ended cleanly (no flagged gap). The "dropped" session then
+	// made commits and never called handoff — so no new handoff_log row exists.
+	s.LogHandoff(time.Now().Add(-2*time.Second).UTC().Format("2006-01-02T15:04:05Z"), observe.GitHeadSHA("."), false, 0)
+	s.DB.Close()
+	mustCommit(t, dir, "off-pool discovery never captured")
+
+	// Confirm there is no flagged persisted row to fall back on.
+	s2, _ := store.Open()
+	last, _ := s2.LastHandoff()
+	s2.DB.Close()
+	if last == nil || last.CaptureGap {
+		t.Fatalf("test setup: expected an unflagged persisted row, got %+v", last)
+	}
+
+	buf, restore := captureStdout()
+	bc := briefCmd()
+	bc.SetOut(&bytes.Buffer{})
+	bc.SetErr(&bytes.Buffer{})
+	if err := bc.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	restore()
+	if !strings.Contains(buf.String(), "may have skipped capture") {
+		t.Fatalf("brief must surface a LIVE capture gap even when the prior session never handed off, got:\n%s", buf.String())
 	}
 }

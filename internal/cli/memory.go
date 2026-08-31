@@ -494,19 +494,21 @@ func memoryHandoffCmd() *cobra.Command {
 				})
 			}
 			// Capture gap check (control-capture-loop): compare against the
-			// previous handoff. If commits happened but no new artifacts were
-			// captured since then, the session may have found transferable
-			// lessons without recording them — a count, never a semantic
-			// judgment, and only a warning (never a block).
-			repoRoot := filepath.Dir(s.Home)
-			commitsSince, newCaptures, captureGap, prevAt, gapErr := detectCaptureGap(s, repoRoot)
+			// previous handoff. If commits happened but no new PORTABLE capture
+			// was recorded since then, the session may have found transferable
+			// lessons without writing them down — a count, never a semantic
+			// judgment, and only a warning (never a block). Gated on portable
+			// captures so unrelated on-pool auto-captures don't mask an off-pool
+			// discovery.
+			repoRoot := observe.GitRepoRoot(".")
+			commitsSince, newArtifacts, newPortable, captureGap, prevAt, gapErr := detectCaptureGap(s, repoRoot)
 			if gapErr != nil {
 				// The gap status is UNKNOWN. Refuse to claim a clean handoff
 				// rather than silently masking a real capture miss.
 				return failErr(fmt.Errorf("capture gap check failed: %w", gapErr))
 			}
 			if captureGap {
-				fmt.Fprintf(os.Stderr, "warning: %d commit(s) since last handoff but 0 new artifacts captured — if the session found new, generalizable lessons, capture them manually (ward memory put --local --tags portable:<topic> --verify-cmd \"<cmd>\") before handing off\n", commitsSince)
+				fmt.Fprintf(os.Stderr, "warning: %d commit(s) since last handoff but 0 new portable captures — if the session found new, generalizable lessons, capture them manually (ward memory put --local --tags portable:<topic> --verify-cmd \"<cmd>\") before handing off\n", commitsSince)
 			}
 			now := store.NowISO()
 			headSHA := observe.GitHeadSHA(repoRoot)
@@ -524,7 +526,8 @@ func memoryHandoffCmd() *cobra.Command {
 				handoff["since_last"] = map[string]any{
 					"previous_at":   prevAt,
 					"commits":       commitsSince,
-					"new_artifacts": newCaptures,
+					"new_artifacts": newArtifacts,
+					"new_portable":  newPortable,
 				}
 			}
 			if jsonOut {
@@ -617,26 +620,29 @@ var (
 )
 
 // detectCaptureGap compares the span since the LAST handoff (if any): if
-// commits happened but no new artifacts were captured, a gap is suspected. A
-// count, never a semantic judgment — whether real lessons were missed is left
-// to a human or the next agent. Returns zeros and no error when there is no
-// prior handoff row. A non-nil error means the read failed and the gap status
-// is UNKNOWN — the caller must treat that as "do not claim a clean handoff",
-// never as "no gap" (that would mask real capture misses).
-func detectCaptureGap(s *store.Store, repoRoot string) (commitsSince, newCaptures int, gap bool, prevAt string, err error) {
+// commits happened but no new PORTABLE capture was written, a gap is suspected.
+// The gap keys off the portable:*-tagged subcount, not all artifacts, so
+// ordinary on-pool auto-captures (unrelated to transferable knowledge) can't
+// mask an off-pool discovery that was never recorded. A count, never a semantic
+// judgment — whether real lessons were missed is left to a human or the next
+// agent. Returns zeros and no error when there is no prior handoff row. A
+// non-nil error means the read failed and the gap status is UNKNOWN — the
+// caller must treat that as "do not claim a clean handoff", never as "no gap"
+// (that would mask real capture misses).
+func detectCaptureGap(s *store.Store, repoRoot string) (commitsSince, newArtifacts, newPortable int, gap bool, prevAt string, err error) {
 	prev, err := s.LastHandoff()
 	if err != nil {
-		return 0, 0, false, "", err
+		return 0, 0, 0, false, "", err
 	}
 	if prev == nil {
-		return 0, 0, false, "", nil
+		return 0, 0, 0, false, "", nil
 	}
 	commitsSince = observe.GitCommitsSince(repoRoot, prev.HeadSHA)
-	newCaptures, err = s.CountArtifactsSince(prev.At)
+	newArtifacts, newPortable, err = s.CountArtifactsSince(prev.At)
 	if err != nil {
-		return 0, 0, false, "", err
+		return 0, 0, 0, false, "", err
 	}
-	return commitsSince, newCaptures, commitsSince > 0 && newCaptures == 0, prev.At, nil
+	return commitsSince, newArtifacts, newPortable, commitsSince > 0 && newPortable == 0, prev.At, nil
 }
 
 func splitCSV(s string) []string {

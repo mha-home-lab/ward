@@ -48,12 +48,22 @@ func (s *Store) LogHandoff(at, headSHA string, captureGap bool, commits int) (*H
 }
 
 // CountArtifactsSince returns the number of artifacts created strictly after
-// the given RFC3339 timestamp.
-func (s *Store) CountArtifactsSince(since string) (int, error) {
+// the given RFC3339 timestamp, plus a subcount of those tagged portable:*.
+// The gap signal keys off the portable subcount: a session that only did
+// ordinary on-pool task work (auto-captures, not portable knowledge) must not
+// clear the off-pool capture gap, so "new artifacts > 0" alone is not enough.
+func (s *Store) CountArtifactsSince(since string) (total, portable int, err error) {
 	if since == "" {
-		return 0, nil
+		return 0, 0, nil
 	}
-	var n int
-	err := s.DB.QueryRow(`SELECT COUNT(*) FROM artifacts WHERE created_at > ?`, since).Scan(&n)
-	return n, err
+	err = s.DB.QueryRow(`SELECT COUNT(*) FROM artifacts WHERE created_at > ?`, since).Scan(&total)
+	if err != nil {
+		return 0, 0, err
+	}
+	// tags is a JSON array, so a portable:* tag appears literally as "portable:".
+	err = s.DB.QueryRow(`SELECT COUNT(*) FROM artifacts WHERE created_at > ? AND tags LIKE '%portable:%'`, since).Scan(&portable)
+	if err != nil {
+		return 0, 0, err
+	}
+	return total, portable, nil
 }

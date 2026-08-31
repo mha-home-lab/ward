@@ -55,6 +55,24 @@ func GitHeadSHA(repoRoot string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// GitRepoRoot returns the absolute top-level directory of the git repo that
+// contains dir (normally the cwd, so it works whether the agent runs from the
+// repo root or a subdirectory). Falls back to dir itself if it is not inside a
+// git repo — observation only, never fails the caller.
+func GitRepoRoot(dir string) string {
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return dir
+	}
+	root := strings.TrimSpace(string(out))
+	if root == "" {
+		return dir
+	}
+	return root
+}
+
 // GitUntracked returns untracked-but-not-ignored files (observation only).
 func GitUntracked(repoRoot string) ([]string, error) {
 	cmd := exec.Command("git", "ls-files", "--others", "--exclude-standard")

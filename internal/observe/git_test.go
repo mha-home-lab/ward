@@ -76,3 +76,30 @@ func TestGitCommitsSince(t *testing.T) {
 		t.Fatal("expected empty HEAD sha outside a git repo")
 	}
 }
+
+func TestGitRepoRoot(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+	// git resolves symlinks (macOS /private), so normalize the expected path.
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// From the repo root and from a subdirectory, resolves to the top level.
+	sub := filepath.Join(resolvedDir, "pkg", "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if root := GitRepoRoot(resolvedDir); root != resolvedDir {
+		t.Fatalf("expected repo root %q from root, got %q", resolvedDir, root)
+	}
+	if root := GitRepoRoot(sub); root != resolvedDir {
+		t.Fatalf("expected repo root %q from subdir, got %q", resolvedDir, root)
+	}
+	// Outside any git repo, falls back to the dir itself (never fails).
+	outside := t.TempDir()
+	if root := GitRepoRoot(outside); root != outside {
+		t.Fatalf("expected fallback to %q outside a repo, got %q", outside, root)
+	}
+}

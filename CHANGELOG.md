@@ -49,6 +49,48 @@ surface.
   swallowing them: a failed read is treated as "unknown", never as "no gap",
   so a real capture miss can't be silently masked or fabricated.
 
+## [v0.9.11] — 2026-09-01 — brief surfaces skipped captures even without a handoff; the gap counts portable lessons, not all captures
+
+Follow-up to the v0.9.10 capture-loop: the loop-closer only surfaced a gap when
+the prior session had actually run `ward memory handoff` (which is what
+persisted the flag). A session that read the vault via `brief`/`skill install`
+but **stopped without ever calling handoff** left no `handoff_log` row, so the
+very gap the feature exists to catch stayed invisible at the next start. This
+release makes `ward brief` compute the gap **live**, and sharpens what counts as
+a capture so unrelated on-pool work can't mask a real off-pool discovery.
+
+### Changed
+
+- **`ward brief` now does a live gap check** (`detectCaptureGap`, read-only, no
+  row written): at session start it compares commits since the **last logged
+  handoff** against new portable captures, so a dropped session that never
+  called `memory handoff` is still caught — its commits remain visible relative
+  to the prior handoff's sha. The persisted flag is kept as a fallback for the
+  normal handoff path (whose own handoff closes the live interval at that
+  session's sha), so brief reports a gap when **live OR persisted**, using
+  persisted counts when the live interval is clean.
+- **Gap gates on `portable:*` captures, not all artifacts**:
+  `store.CountArtifactsSince` returns both a total and a `portable:*`-tagged
+  subcount, and `detectCaptureGap` flags a gap only when `commits > 0 &&
+  portable == 0`. An on-pool auto-capture (node-tag, not portable) can no longer
+  clear the off-pool discovery gap.
+- **Robust repo-root resolution**: the gap check now resolves the repository root
+  via `git rev-parse --show-toplevel` from the cwd (`observe.GitRepoRoot`), so it
+  works from any subdirectory and doesn't depend on `WARD_HOME` pointing at a
+  `.ward` under the repo (previously `filepath.Dir(s.Home)` mis-resolved when
+  WARD_HOME was an absolute path elsewhere).
+
+### Fixed
+
+- The loop-closer missed sessions that read the vault but never handed off — the
+  exact "agent 3 stopped and reported to a human without handing off" scenario
+  from the spec. `TestBriefLiveGapWithoutHandoff` locks it in.
+
+### Kept
+
+- Posture unchanged: never a block, count-never-judgment, warn-only.
+- The normal handoff path still surfaces its own gap before the next brief.
+
 ## [v0.9.9] — 2026-08-30 — hang-proof live sweep: verify commands are bounded and brief is never silent
 
 `ward brief`'s opening live sweep re-executes every store-local artifact's

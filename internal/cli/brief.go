@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mha-home-lab/ward/internal/observe"
 	"github.com/mha-home-lab/ward/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -174,16 +175,34 @@ func briefCmd() *cobra.Command {
 			}
 
 			b.Next = nextActions(b)
-			// Loop closer (control-capture-loop): surface it here so even if the
-			// acting agent ignored its own handoff warning, the NEXT session sees
-			// the gap at start and can decide whether to backfill. brief reads the
-			// flag persisted on the most recent handoff_log row (set when that
-			// handoff observed commits with no captures). Prepend so it reads as
-			// the top of the "do next" list. A read error just skips the line —
-			// brief is a best-effort session report and must not gate a session
-			// start on the capture-gap bookkeeping.
-			if prev, herr := s.LastHandoff(); herr == nil && prev != nil && prev.CaptureGap {
-				line := fmt.Sprintf("previous session may have skipped capture (%d commits, 0 new artifacts) — review and backfill if real lessons were found (ward memory put --local --tags portable:<topic> --verify-cmd %q)", prev.Commits, "<cmd>")
+			// Loop closer (control-capture-loop): surface a capture gap at the
+			// start of THIS session so the next agent can decide whether to
+			// backfill. Combined, read-only, never blocks:
+			//   1. A LIVE check (detectCaptureGap) — catches commits made since
+			//      the last handoff that produced no new portable capture. This
+			//      is the case this feature exists for: a session that READ the
+			//      vault via brief/skill-install but never ran `memory handoff`
+			//      (so no fresh handoff_log row exists) still leaves its commits
+			//      visible relative to the prior handoff and is caught here.
+			//   2. The PERSISTED flag on the last handoff_log row — catches a
+			//      gap a prior session's own handoff already flagged, which a
+			//      live check relative to that handoff's sha would otherwise
+			//      show as "0 commits". Kept so the normal handoff path still
+			//      surfaces before the next brief.
+			// Gating is on portable:*-tagged captures so unrelated on-pool work
+			// can't mask an off-pool discovery. Prepend so it reads as the top
+			// of the "do next" list. Read errors just skip the line — brief is
+			// a best-effort session report and must not gate a session start on
+			// capture-gap bookkeeping.
+			liveCommits, _, _, liveGap, _, _ := detectCaptureGap(s, observe.GitRepoRoot("."))
+			prev, _ := s.LastHandoff()
+			persistedGap := prev != nil && prev.CaptureGap
+			if liveGap || persistedGap {
+				commits := liveCommits
+				if commits == 0 && persistedGap {
+					commits = prev.Commits
+				}
+				line := fmt.Sprintf("previous session may have skipped capture (%d commits, 0 new portable captures) — review and backfill if real lessons were found (ward memory put --local --tags portable:<topic> --verify-cmd %q)", commits, "<cmd>")
 				b.Next = append([]string{line}, b.Next...)
 			}
 			if compact {

@@ -59,20 +59,26 @@ func TestCountArtifactsSince(t *testing.T) {
 	defer s.DB.Close()
 
 	now := NowISO()
-	if n, err := s.CountArtifactsSince(now); err != nil || n != 0 {
-		t.Fatalf("expected 0 artifacts after now, got %d err=%v", n, err)
+	total, portable, err := s.CountArtifactsSince(now)
+	if err != nil || total != 0 || portable != 0 {
+		t.Fatalf("expected 0 artifacts after now, got %d/%d err=%v", total, portable, err)
 	}
 	// Empty "since" is a no-op (never counts).
-	if n, _ := s.CountArtifactsSince(""); n != 0 {
-		t.Fatalf("expected 0 with empty since, got %d", n)
+	if total, _, _ := s.CountArtifactsSince(""); total != 0 {
+		t.Fatalf("expected 0 with empty since, got %d", total)
 	}
 
+	// One non-portable artifact, then one portable:*-tagged artifact.
 	if _, err := s.UpsertArtifact(Artifact{Kind: "context", Summary: "s", Content: "c", Status: "accepted"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertArtifact(Artifact{Kind: "solution", Summary: "p", Content: "pc", Tags: []string{"portable:bash"}, Status: "accepted"}); err != nil {
 		t.Fatal(err)
 	}
 	// Use a clearly-past reference (created_at has 1s resolution, so a "now"
 	// captured in the same second as the insert would not be strictly greater).
-	if n, _ := s.CountArtifactsSince("2000-01-01T00:00:00Z"); n < 1 {
-		t.Fatalf("expected >=1 artifact since year 2000, got %d", n)
+	total, portable, _ = s.CountArtifactsSince("2000-01-01T00:00:00Z")
+	if total < 2 || portable < 1 {
+		t.Fatalf("expected >=2 total and >=1 portable since year 2000, got %d/%d", total, portable)
 	}
 }
