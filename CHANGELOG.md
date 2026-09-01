@@ -3,6 +3,32 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## [v0.9.13] — 2026-09-01 — misplacement guard compares absolute paths; no false warning inside ward's own store
+
+Follow-up surfaced while capturing portable knowledge from inside the ward repo:
+registering `ward` as a project stores an **absolute** path, but the default
+current-store `Home()` resolves to the **relative** `.ward`. `warnIfMisplaced`'s
+`store.Home() == h` test therefore compared relative to absolute and falsely
+warned "filed in the CURRENT project's store (not ward's)" for any
+`ward`/`portable:`-tagged item written from inside the ward repo — prompting an
+agent to wrongly re-target `--project ward` or relocate a correctly-placed item.
+
+### Fixed
+
+- **`warnIfMisplaced` compares absolute paths** (`filepath.Abs` of both the
+  current store and the registered ward home), so writing ward/portable items in
+  ward's own store is correctly recognized and produces no warning. The
+  tag-detection widening to `topic:portable:` (v0.9.12) had made this false
+  positive reach common put/task-add paths.
+
+### Tests
+
+- `TestMisplacementGuardInsideWardStore`: current store path == registered ward
+  path plus a `topic:portable:` tag must not warn.
+
+Gate: `go build ./...`, `go test ./... -race`, `gofmt -l .` empty, `go vet`
+clean.
+
 ## [v0.9.12] — 2026-09-01 — portable tagging is content-based, not prefix-only; pack/sync canonical name + skill-sync nudge
 
 Root cause found while auditing the portable knowledge pipeline: the
