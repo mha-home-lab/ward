@@ -110,3 +110,29 @@ func TestMisplacementGuard(t *testing.T) {
 		t.Fatalf("--project ward should suppress the misplacement warning, got: %s", buf2.String())
 	}
 }
+
+// TestMisplacementGuardInsideWardStore: filing a portable:-tagged item from INSIDE
+// ward's own store (current store path == registered ward path) must NOT warn —
+// this is the inside-ward-repo case the guard must suppress. It also exercises the
+// relative-vs-absolute fix: before the fix, a relative Home() misc-compared
+// against the absolute registered path and falsely warned.
+func TestMisplacementGuardInsideWardStore(t *testing.T) {
+	wardHome := t.TempDir()
+	t.Setenv("WARD_HOME", wardHome)              // current store = absolute temp dir
+	t.Setenv("WARD_PROJECT_WARD_HOME", wardHome) // register "ward" -> same dir
+	t.Chdir(t.TempDir())
+
+	buf, restore := captureStderr()
+	defer restore()
+	root := NewRoot()
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"memory", "put", "--summary", "inside ward store lesson", "--kind", "solution",
+		"--tags", "topic:portable:probe", "--content", "a generalizable mechanism that applies anywhere"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if strings.Contains(buf.String(), "this request is tagged for WARD itself") {
+		t.Fatalf("writing portable:-tagged item in ward's own store must NOT warn, got: %s", buf.String())
+	}
+}

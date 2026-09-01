@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 
 	"github.com/mha-home-lab/ward/internal/store"
@@ -63,9 +64,16 @@ func warnIfMisplaced(tags []string, project string) {
 	if !wardish || project != "" {
 		return
 	}
-	// Already inside ward's own store? Then filing here is correct.
-	if h, ok := store.ProjectHome("ward"); ok && store.Home() == h {
-		return
+	// Already inside ward's own store? Then filing here is correct. Compare
+	// ABSOLUTE paths: Home() is typically relative (default ".ward") while the
+	// registered ProjectHome is absolute, so a raw == comparison falsely warns
+	// when an agent is writing ward items from inside the ward repo.
+	if h, ok := store.ProjectHome("ward"); ok {
+		cur, cerr := filepath.Abs(store.Home())
+		tgt, terr := filepath.Abs(h)
+		if cerr == nil && terr == nil && cur == tgt {
+			return
+		}
 	}
 	fmt.Fprintln(os.Stderr, "warning: this request is tagged for WARD itself but is being filed in the CURRENT project's store (not ward's). "+
 		"Ward's own agents read ward's store; file it there with `--project ward` (run `ward project register ward <path-to-ward/.ward>` once) or run from the ward repo, otherwise it will be invisible to them.")
