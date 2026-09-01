@@ -3,6 +3,63 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## [v0.9.12] — 2026-09-01 — portable tagging is content-based, not prefix-only; pack/sync canonical name + skill-sync nudge
+
+Root cause found while auditing the portable knowledge pipeline: the
+`portable:` marker was detected with a STRICT prefix, so the alternate
+`topic:portable:<name>` spelling **silently skipped** the transferability gate,
+the misplaced-item warning, and `skill-sync`'s source discovery. A lesson tagged
+`topic:portable:bash` was effectively invisible to the global vault — the exact
+leak the pipeline exists to prevent.
+
+### Changed
+
+- **`portable` is detected on tag CONTENT, not prefix**. `store.PortableTopics()`
+  now returns the deduped **topic name** honoring both `portable:<n>` and
+  `topic:portable:<n>` (substring `portable:` marker, never strict prefix), and a
+  new `store.ArtifactsForPortableTopic(name)` resolves source artifacts under
+  either spelling. A single `portableTopicName()` helper backs the
+  transferability lint, the misplaced-item warning, and the store — one
+  definition, both conventions.
+- **Transferability gate fires on tag content**: `skill pack`'s portable check
+  uses `strings.Contains(tag, "portable:")`, so a `topic:portable:*` selector
+  targeting the global vault is never exempted from the lint.
+- **Canonical chip naming** (`canonicalChipTopic`): `ward skill pack portable:bash`
+  now writes `ward-bash/SKILL.md` (frontmatter `name: ward-bash`), matching
+  `skill-sync` and `findGlobalChip` — fixing the `ward-portable-bash`
+  frontmatter/directory mismatch that made a "current chip" resolve to an
+  un-updated global file.
+- **`ward brief` nudges `skill-sync`**: a verified portable topic with no global
+  chip surfaces "N portable topic(s) … not yet pushed to the global vault — run
+  ward skill-sync" at session start, closing the capture→pack→sync loop even
+  when a session never calls handoff (same shape as the capture-gap nudge).
+
+### Fixed
+
+- `skill-sync` regressed when `PortableTopics()` changed its return contract
+  (full tag → stripped name): it searched by the stripped name, matched zero
+  sources, and synced **nothing** silently. It now uses
+  `ArtifactsForPortableTopic`. `TestSyncSkipsCheatSheetTopic` /
+  `TestSyncForceIncludesCheatSheetWithReason` / `TestSyncHonorsTopicPrefixedTag`
+  lock the behavior in.
+
+### Kept
+
+- Posture unchanged: never a block, warn-only, transferability as judgment-saved
+  for the pack/sync gates.
+
+### Tests
+
+- `internal/store/portable_test.go`: both tag spellings discovered, dedup by
+  name, source resolution per topic.
+- `TestSyncHonorsTopicPrefixedTag`: `topic:portable:` source syncs to
+  `ward-bash`.
+- `TestBriefNudgesSkillSyncForUnsyncedPortable`: brief surfaces the nudge.
+
+Gate: `go build ./...`, `go test ./... -race`, `gofmt -l .` empty, `go vet`
+clean; the real CLI was smoke-tested (`topic:portable:bash` → `ward-bash` sync,
+brief nudge fires).
+
 ## [v0.9.10] — 2026-09-01 — close the capture loop for off-pool work
 
 Spec `.spec/control-capture-loop.md`. Auto-capture only fired inside `ward task
