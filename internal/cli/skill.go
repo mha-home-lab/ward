@@ -69,8 +69,10 @@ func skillPackCmd() *cobra.Command {
 
 			// Transferability gate: only the portable pipeline is linted.
 			// Ordinary local captures are legitimately instance-specific and
-			// are never scored.
-			portable := strings.HasPrefix(tag, "portable:") || isGlobalSkillsOut(out)
+			// are never scored. Honor both portable tag spellings (portable:<n>
+			// and topic:portable:<n>) so a topic:-prefixed selector that targets
+			// the global vault is never silently exempted from the lint.
+			portable := strings.Contains(tag, "portable:") || isGlobalSkillsOut(out)
 			var g gateOutcome
 			if portable {
 				var err error
@@ -89,7 +91,7 @@ func skillPackCmd() *cobra.Command {
 				}
 			}
 
-			chipName := chipNameFor(topic)
+			chipName := chipNameFor(canonicalChipTopic(topic))
 			dir := out
 			if dir == "" {
 				dir = filepath.Join(".opencode", "skills", chipName)
@@ -667,6 +669,18 @@ func gateLabel(a store.Artifact) string {
 		return "promoted"
 	}
 	return a.VerifyStatus
+}
+
+// canonicalChipTopic reduces a pack topic to the name used for the global chip:
+// a portable marker prefix (`portable:` or `topic:portable:`) is stripped so the
+// same knowledge maps to ONE canonical chip (ward-bash) regardless of how the
+// user spells the selector — matching skill-sync and findGlobalChip. Non-portable
+// topics pass through unchanged (their local chip keeps the full topic).
+func canonicalChipTopic(topic string) string {
+	if name := portableTopicName(topic); name != "" {
+		return name
+	}
+	return topic
 }
 
 func chipNameFor(topic string) string {

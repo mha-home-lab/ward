@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/mha-home-lab/ward/internal/store"
 	"github.com/spf13/cobra"
@@ -59,9 +58,8 @@ func syncCmd() *cobra.Command {
 			}
 			var results []topicResult
 			for _, t := range topics {
-				topic := strings.TrimPrefix(t, "portable:")
-				name := chipNameFor(topic)
-				srcs, err := s.SearchArtifactsTagged("", "", "", t, 50)
+				name := chipNameFor(t)
+				srcs, err := s.ArtifactsForPortableTopic(t)
 				if err != nil || len(srcs) == 0 {
 					continue
 				}

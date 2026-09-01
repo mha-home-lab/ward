@@ -215,6 +215,25 @@ func TestSyncSkipsCheatSheetTopic(t *testing.T) {
 	}
 }
 
+// TestSyncHonorsTopicPrefixedTag: the same propagation must work when the tag
+// carries BOTH a topic classifier and the portable marker (topic:portable:bash).
+// A generalizable lesson in that spelling still resolves to the bash topic and
+// syncs to the ward-bash global chip — the fix for the strict-prefix silent-skip.
+func TestSyncHonorsTopicPrefixedTag(t *testing.T) {
+	dir := newSurfaceStore(t)
+	putLocalFact(t, dir, "the lesson is the positive-mod idiom; because the mechanism generalizes", "posmod", "topic:portable:bash")
+
+	target := filepath.Join(t.TempDir(), "skills")
+	out := jsonRun(t, syncCmd(), []string{"--dir", target})
+	m := parseNoNull(t, out)
+	if topics := m["topics"].([]any); len(topics) != 1 {
+		t.Fatalf("topic:portable:bash must be discovered as one topic, got %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(target, "ward-bash", "SKILL.md")); err != nil {
+		t.Fatalf("topic:-prefixed portable source must sync the ward-bash global chip: %v", err)
+	}
+}
+
 // TestSyncForceIncludesCheatSheetWithReason mirrors pack --force: the sync gate
 // has the same logged escape hatch, so a specific cheat-sheet source can still
 // be synced, with the reason recorded on the artifact.

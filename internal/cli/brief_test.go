@@ -122,6 +122,50 @@ func TestBriefSurfacesOpenTaskPool(t *testing.T) {
 	}
 }
 
+// TestBriefNudgesSkillSyncForUnsyncedPortable: a verified portable topic with no
+// global chip must be surfaced as a `ward skill-sync` nudge at session start, so
+// accepted knowledge that is invisible to other projects is pushed to the vault.
+func TestBriefNudgesSkillSyncForUnsyncedPortable(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WARD_HOME", home)
+	t.Setenv("HOME", t.TempDir()) // empty global skills vault
+	wd := t.TempDir()
+	t.Chdir(wd)
+	if err := os.WriteFile(filepath.Join(wd, "f"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := store.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := s.UpsertArtifact(store.Artifact{
+		Kind: "solution", Summary: "bash lesson", Tags: []string{"portable:bash"},
+		Content: "the lesson is the positive-mod idiom; because the mechanism generalizes",
+		Status:  "accepted", CreatedBy: "test", Local: true, VerifyCmd: "grep -q x f", VerifyKind: "shell",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetVerify(id, "verified"); err != nil {
+		t.Fatal(err)
+	}
+	s.DB.Close()
+
+	out := jsonRun(t, briefCmd(), nil)
+	m := parseNoNull(t, out)
+	found := false
+	for _, n := range m["next"].([]any) {
+		if strings.Contains(n.(string), "skill-sync") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("brief must nudge skill-sync for an unsynced portable topic:\n%s", out)
+	}
+}
+
 func TestLoadWFResolvesDefaultBeforeDemo(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Chdir(dir); err != nil {

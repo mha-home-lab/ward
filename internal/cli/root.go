@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
-	"strings"
 
 	"github.com/mha-home-lab/ward/internal/store"
 	"github.com/spf13/cobra"
@@ -56,7 +55,7 @@ var jsonOut bool
 func warnIfMisplaced(tags []string, project string) {
 	wardish := false
 	for _, t := range tags {
-		if t == "ward" || strings.HasPrefix(t, "portable:") {
+		if t == "ward" || portableTopicName(t) != "" {
 			wardish = true
 			break
 		}

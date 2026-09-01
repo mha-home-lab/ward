@@ -175,6 +175,19 @@ func briefCmd() *cobra.Command {
 			}
 
 			b.Next = nextActions(b)
+
+			// Portable-knowledge propagation nudge: a portable lesson accepted
+			// into the store is invisible to agents in OTHER projects until it
+			// is synced to the global skill vault. If portable topics exist with
+			// no global chip, surface `ward skill-sync` at session start — the
+			// same shape as the capture-gap nudge, so the "capture → pack →
+			// sync" loop closes even when a session never runs handoff. Read-only
+			// and best-effort: errors just skip it.
+			if unsynced := unsyncedPortableTopics(s); len(unsynced) > 0 {
+				line := fmt.Sprintf("%d portable topic(s) verified but not yet pushed to the global vault (%s) — run ward skill-sync so future agents in any project get them (or ward skill pack <topic> --out ~/.config/opencode/skills/<chip>)",
+					len(unsynced), strings.Join(unsynced, ", "))
+				b.Next = append([]string{line}, b.Next...)
+			}
 			// Loop closer (control-capture-loop): surface a capture gap at the
 			// start of THIS session so the next agent can decide whether to
 			// backfill. Combined, read-only, never blocks:
@@ -412,6 +425,31 @@ func printHumanBrief(b brief) {
 	for i, n := range b.Next {
 		fmt.Printf("  %d. %s\n", i+1, n)
 	}
+}
+
+// unsyncedPortableTopics returns the portable topic names that are verified in
+// this store but have no current global chip under ~/.config/opencode/skills/.
+// It is the trigger for the brief "run ward skill-sync" nudge: knowledge that
+// is accepted but not yet propagated to the global vault is invisible to agents
+// in any other project. Read-only and best-effort (errors yield no topics).
+func unsyncedPortableTopics(s *store.Store) []string {
+	topics, err := s.PortableTopics()
+	if err != nil {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	base := filepath.Join(home, ".config", "opencode", "skills")
+	var out []string
+	for _, t := range topics {
+		cp := filepath.Join(base, chipNameFor(t), "SKILL.md")
+		if _, err := os.Stat(cp); err != nil {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // staleChipReport scans .opencode/skills/*/SKILL.md and reports chips whose
