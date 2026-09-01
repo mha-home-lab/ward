@@ -3,6 +3,46 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## [v0.9.15] — 2026-09-01 — agent-declared recurrence links for portable knowledge
+
+The field report asked for a stronger promotion signal than "this topic has
+portable artifacts": it wanted to know when a lesson has genuinely *recurred* —
+the same underlying trap surfaced independently in different wording. Semantic
+recurrence detection is fragile and misattributes transferability to ward's
+opinion of text. So ward does not detect recurrence either: an agent asserts a
+recurrence link with `--recurs <id>` on `ward memory put` / `ward capture`,
+mirroring how `--verify-cmd` and supersede let the agent declare ground truth
+ward never judges. The count of agent-declared confirmations is then a
+deterministic, honest promotion signal.
+
+### Added
+
+- **New `recurrences` table (schema v12)** — records one row per
+  agent-declared link: `of_id` (the earlier lesson being confirmed),
+  `from_id` (the new capture that recognized it), optional `note`, and `at`.
+  Many-to-one (several captures may confirm one original), deliberately
+  distinct from `superseded_by` (1:1, "this replaces that"). `Store.RecordRecurrence`
+  validates both ids exist and rejects self-links; `Store.RecurrenceCount`
+  returns how many later captures confirm an artifact.
+- **`--recurs <id>` flag** on both `ward memory put` and `ward capture` —
+  after the new artifact is written, ward records that it confirms the given
+  existing lesson. Ward never decides the link; the agent does.
+- **`recurrence_count` in `ward memory get --json`** — a derived view (how
+  many later captures confirm this artifact), never a persisted column.
+- **`brief` strong-promotion nudge** — an unsynced portable topic whose lesson
+  is independently confirmed `>= 2` times (agent-declared links) is listed as a
+  "strong promotion candidate(s)" and worth pushing to the global vault.
+- **Assistive recurrence autocomplete (non-blocking)** — when a capture does
+  NOT supply `--recurs`, ward prints a stderr hint if the new content shares
+  `>= 3` distinctive tokens with an existing artifact under the same portable
+  topic. It never links anything itself (autocomplete, not detection).
+
+### Notes
+
+- A missed recurrence is a silent miss, never a false gate: the signal only
+  moves when an agent explicitly links. This keeps the promotion claim honest
+  — it rests on declared confirmations, never on ward's judgment of text.
+
 ## [v0.9.14] — 2026-09-01 — claim reservations no longer leak into portable chip sources
 
 Found while wrangling the portable knowledge vault into a complete state: a

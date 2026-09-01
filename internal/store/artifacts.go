@@ -276,6 +276,50 @@ func nullStr(s sql.NullString) string {
 	return ""
 }
 
+// RecordRecurrence records an agent-DECLARED recurrence link: fromID (a newer
+// capture) confirms ofID (an earlier lesson) as the same trap surfaced in
+// different wording. Ward never detects this — the agent asserts it via
+// `--recurs`, mirroring how Supersede lets an agent declare "this replaces
+// that" without ward judging content. Many-to-one: several later captures can
+// confirm the same original. Both ids must exist and a link may not point an
+// artifact at itself.
+func (s *Store) RecordRecurrence(ofID, fromID, note string) error {
+	if ofID == "" || fromID == "" {
+		return fmt.Errorf("recurrence requires both of_id and from_id")
+	}
+	if ofID == fromID {
+		return fmt.Errorf("recurrence cannot link an artifact to itself")
+	}
+	for _, id := range []string{ofID, fromID} {
+		if err := s.ensureArtifactExists(id); err != nil {
+			return err
+		}
+	}
+	_, err := s.DB.Exec(`INSERT INTO recurrences (of_id, from_id, note, at) VALUES (?,?,?,?)`,
+		ofID, fromID, note, nowISO())
+	return err
+}
+
+// RecurrenceCount returns how many later captures have declared that they
+// confirm the given artifact (COUNT(*) on recurrences.of_id). Zero means
+// unconfirmed; >= 2 is the "independently confirmed N times" promotion signal
+// the field report asked for — built on counts an agent declared, never on
+// ward's opinion of the text.
+func (s *Store) RecurrenceCount(id string) (int, error) {
+	var n int
+	err := s.DB.QueryRow(`SELECT count(*) FROM recurrences WHERE of_id = ?`, id).Scan(&n)
+	return n, err
+}
+
+func (s *Store) ensureArtifactExists(id string) error {
+	var one int
+	err := s.DB.QueryRow(`SELECT 1 FROM artifacts WHERE id = ?`, id).Scan(&one)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("no artifact %s", id)
+	}
+	return err
+}
+
 // --- runs ---
 
 // CreateRun inserts a new run row.

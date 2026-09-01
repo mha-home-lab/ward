@@ -26,7 +26,7 @@ func TestCaptureNodeDefaultsTagAndInfersVerify(t *testing.T) {
 	wf := &orchestration.Workflow{Name: "t", Nodes: []orchestration.Node{
 		{ID: "impl", Kind: "test", Run: "go test ./..."},
 	}}
-	id, err := captureNode(s, wf, wf.Nodes[0], "", "", "", "", "")
+	id, err := captureNode(s, wf, wf.Nodes[0], "", "", "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestCaptureNodeDefaultsTagAndInfersVerify(t *testing.T) {
 	}
 
 	// override beats inference (distinct content so it is a distinct artifact)
-	id2, err := captureNode(s, wf, wf.Nodes[0], "custom", "grep -rq x README.md", "grep", "different content", "")
+	id2, err := captureNode(s, wf, wf.Nodes[0], "custom", "grep -rq x README.md", "grep", "different content", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestCaptureNodeInfersRunNotGoTest(t *testing.T) {
 	wf := &orchestration.Workflow{Name: "t", Nodes: []orchestration.Node{
 		{ID: "verify", Kind: "test", Run: "grep -rq WARD README.md"},
 	}}
-	id, err := captureNode(s, wf, wf.Nodes[0], "", "", "", "", "")
+	id, err := captureNode(s, wf, wf.Nodes[0], "", "", "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestCaptureNodeGlobProduces(t *testing.T) {
 	wf := &orchestration.Workflow{Name: "t", Nodes: []orchestration.Node{
 		{ID: "build", Kind: "context", Produces: []string{glob}},
 	}}
-	id, err := captureNode(s, wf, wf.Nodes[0], "", "", "", "", "")
+	id, err := captureNode(s, wf, wf.Nodes[0], "", "", "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestCaptureNodeHashInference(t *testing.T) {
 	wf := &orchestration.Workflow{Name: "t", Nodes: []orchestration.Node{
 		{ID: "build", Kind: "context", Produces: []string{path}},
 	}}
-	id, err := captureNode(s, wf, wf.Nodes[0], "", "", "", "", "")
+	id, err := captureNode(s, wf, wf.Nodes[0], "", "", "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -299,7 +299,7 @@ func TestCaptureWarnsButDoesNotBlock(t *testing.T) {
 		{ID: "collatz", Kind: "channel", Run: "go test ./..."},
 	}}
 	buf, restore := captureStderr()
-	id, capErr := captureNode(s, wf, wf.Nodes[0], "portable:bash", "", "", "", "collatz prints exactly 'Error: Only positive integers are allowed'")
+	id, capErr := captureNode(s, wf, wf.Nodes[0], "portable:bash", "", "", "", "collatz prints exactly 'Error: Only positive integers are allowed'", "")
 	restore()
 	stderr := buf.String()
 	if capErr != nil {

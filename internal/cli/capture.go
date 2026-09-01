@@ -22,7 +22,7 @@ import (
 // is inferred: a test node -> `go test ./...`; otherwise a hash of `produces`
 // when it names a concrete file. An explicit flag overrides either.
 func captureNode(s *store.Store, wf *orchestration.Workflow, node orchestration.Node,
-	tagOverride, verifyCmdOverride, verifyKindOverride, summaryOverride, contentOverride string) (string, error) {
+	tagOverride, verifyCmdOverride, verifyKindOverride, summaryOverride, contentOverride string, recurs string) (string, error) {
 
 	tag := tagOverride
 	if tag == "" {
@@ -75,6 +75,22 @@ func captureNode(s *store.Store, wf *orchestration.Workflow, node orchestration.
 	id, err := s.UpsertArtifact(a)
 	if err != nil {
 		return "", err
+	}
+	// Agent-DECLARED recurrence link (control-recurrence-links), on-pool
+	// symmetry: when the capture targets --recurs <id>, record that this
+	// artifact confirms that earlier lesson. Ward never decides the link.
+	if recurs != "" {
+		if err := s.RecordRecurrence(recurs, id, ""); err != nil {
+			return "", err
+		}
+	}
+	// Assistive recurrence autocomplete (signal 5, non-blocking): only when the
+	// capture did NOT already link a recurrence does ward note a similarly-worded
+	// portable sibling. On-pool symmetry with memoryPutCmd; never links itself.
+	if recurs == "" {
+		if hint := hintIfRecurrence(s, tags, content, id); hint != "" {
+			fmt.Fprintln(os.Stderr, "hint: "+hint)
+		}
 	}
 	// Verification is deferred to the next session (flow.md step 7: "a claim the
 	// next session can live-verify"). We do NOT run verify_cmd here — running it
@@ -154,7 +170,7 @@ func autoCapture(s *store.Store, wf *orchestration.Workflow, runID string) int {
 		if node.Run == "" || status[node.ID] != "done" {
 			continue
 		}
-		if _, err := captureNode(s, wf, node, "", "", "", "", ""); err != nil {
+		if _, err := captureNode(s, wf, node, "", "", "", "", "", ""); err != nil {
 			fmt.Printf("capture skip %s: %v\n", node.ID, err)
 			continue
 		}
@@ -164,7 +180,7 @@ func autoCapture(s *store.Store, wf *orchestration.Workflow, runID string) int {
 }
 
 func captureCmd() *cobra.Command {
-	var runID, nodeID, wfPath, tag, verifyCmd, verifyKind, summary, content string
+	var runID, nodeID, wfPath, tag, verifyCmd, verifyKind, summary, content, recurs string
 	c := &cobra.Command{
 		Use:   "capture",
 		Short: "write a verified claim for a completed node (result capture, flow.md step 7)",
@@ -221,7 +237,7 @@ func captureCmd() *cobra.Command {
 					if st[node.ID] != "done" {
 						continue
 					}
-					id, err := captureNode(s, wf, node, tag, verifyCmd, verifyKind, summary, content)
+					id, err := captureNode(s, wf, node, tag, verifyCmd, verifyKind, summary, content, recurs)
 					if err != nil {
 						return failErr(err)
 					}
@@ -239,7 +255,7 @@ func captureCmd() *cobra.Command {
 				if !ok {
 					return failErr(fmt.Errorf("node %s not in workflow", nodeID))
 				}
-				id, err := captureNode(s, wf, node, tag, verifyCmd, verifyKind, summary, content)
+				id, err := captureNode(s, wf, node, tag, verifyCmd, verifyKind, summary, content, recurs)
 				if err != nil {
 					return failErr(err)
 				}
@@ -262,5 +278,6 @@ func captureCmd() *cobra.Command {
 	c.Flags().StringVar(&verifyKind, "verify-kind", "", "verify kind for --verify-cmd (shell|grep|build|test|hash)")
 	c.Flags().StringVar(&summary, "summary", "", "artifact summary (default derived)")
 	c.Flags().StringVar(&content, "content", "", "artifact content (default derived)")
+	c.Flags().StringVar(&recurs, "recurs", "", "id of an existing artifact this capture confirms as the same lesson (agent-declared recurrence link)")
 	return c
 }

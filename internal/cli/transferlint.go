@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mha-home-lab/ward/internal/store"
 	"github.com/mha-home-lab/ward/internal/transferability"
 )
 
@@ -38,4 +39,40 @@ func warnIfCheatSheet(tags []string, summary, content string) {
 			return
 		}
 	}
+}
+
+// hintIfRecurrence is the assistive recurrence autocomplete (signal 5): when a
+// new portable:* capture shares enough distinctive tokens with an existing
+// artifact under the SAME topic, it returns a non-blocking hint suggesting
+// `--recurs <id>` for the true-recurrence case. It never links anything —
+// only the agent's explicit --recurs does. It deliberately under-fires (real
+// recurrences with little lexical overlap slip past) and may over-fire on
+// coincidence; it is autocomplete, not detection, so it changes no data and
+// blocks nothing. Returns "" when there is no portable tag, no similarly-worded
+// sibling, or the caller already supplied --recurs (caller gates on that).
+func hintIfRecurrence(s *store.Store, tags []string, content string, newID string) string {
+	for _, t := range tags {
+		name := portableTopicName(t)
+		if name == "" {
+			continue
+		}
+		srcs, err := s.ArtifactsForPortableTopic(name)
+		if err != nil {
+			return ""
+		}
+		bestID, bestN := "", 0
+		for _, a := range srcs {
+			if a.ID == newID || a.Kind == "claim" {
+				continue
+			}
+			if n := transferability.SharedDistinctiveTokens(content, a.Content); n > bestN {
+				bestID, bestN = a.ID, n
+			}
+		}
+		if bestN >= 3 && bestID != "" {
+			return fmt.Sprintf("this looks similar to %s (%d shared tokens) — if it's the same lesson in different wording, consider --recurs %s instead of a fresh capture", bestID, bestN, bestID)
+		}
+		return ""
+	}
+	return ""
 }

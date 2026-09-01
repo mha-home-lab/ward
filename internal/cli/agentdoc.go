@@ -76,11 +76,13 @@ never re-solve solved problems and never trust stale claims.
    a verify_cmd you would not run yourself. THE ONE EXCEPTION: work done
    OUTSIDE ward task run (a green-field batch, an exploratory session) that
    surfaces a new, generalizable lesson must be captured manually — as
-       ward memory put --local --tags portable:<topic> \
-           --summary "..." --content "..." --verify-cmd "<cmd>"
-   before ward memory handoff. This is the case hand-typing is correct, not
-   a violation of this step: compounding requires knowledge to flow back in
-   from off-pool work, not just out.
+        ward memory put --local --tags portable:<topic> \
+            --summary "..." --content "..." --verify-cmd "<cmd>"
+    before ward memory handoff. This is the case hand-typing is correct, not
+    a violation of this step: compounding requires knowledge to flow back in
+    from off-pool work, not just out. If this lesson is the same underlying
+    trap as an existing portable artifact in different wording, link it with
+    '--recurs <id>' instead of filing an unrelated duplicate.
 7. BEFORE ENDING: run  ward memory handoff  so the next session inherits
    incomplete work, open runs, and stale candidates.
 8. FAILURE POLICY: two escalating failures exhaust the budget and the run

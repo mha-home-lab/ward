@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -178,6 +179,7 @@ func memoryCmd() *cobra.Command {
 func memoryPutCmd() *cobra.Command {
 	var kind, summary, content, tags, verifyCmd, verifyKind, project, by, ceremony string
 	var imported, local bool
+	var recurs string
 	c := &cobra.Command{
 		Use:   "put",
 		Short: "store a memory artifact (light ceremony auto-accepts; NOT store-local by default)",
@@ -227,6 +229,25 @@ func memoryPutCmd() *cobra.Command {
 			if err != nil {
 				return failErr(err)
 			}
+			// Agent-DECLARED recurrence link (control-recurrence-links): if the
+			// agent recognizes this capture as the same underlying trap as an
+			// existing artifact (<id>), record that it confirms it. Ward never
+			// decides the link — the agent does, exactly as it supplies
+			// --verify-cmd. Aggregated into RecurrenceCount for the promotion
+			// signal. A missed recurrence is a silent miss, never a false gate.
+			if recurs != "" {
+				if err := s.RecordRecurrence(recurs, id, ""); err != nil {
+					return failErr(err)
+				}
+			}
+			// Assistive recurrence autocomplete (signal 5, non-blocking): only
+			// when the agent did NOT already link a recurrence does ward note a
+			// similarly-worded portable sibling. It never links anything itself.
+			if recurs == "" {
+				if hint := hintIfRecurrence(s, splitCSV(tags), content, id); hint != "" {
+					fmt.Fprintln(os.Stderr, "hint: "+hint)
+				}
+			}
 			// Light ceremony auto-accepts (spec). Full ceremony stays proposed
 			// pending review. Auto-accepted but unverified artifacts still cannot
 			// vote cheap until live-verified.
@@ -252,9 +273,22 @@ func memoryPutCmd() *cobra.Command {
 	c.Flags().StringVar(&project, "namespace", "", "project namespace tag stored on the artifact (distinct from --project, which selects the target store)")
 	c.Flags().StringVar(&by, "by", "agent", "creator name")
 	c.Flags().StringVar(&ceremony, "ceremony", "light", "light (auto-accept) | full")
+	c.Flags().StringVar(&recurs, "recurs", "", "id of an existing artifact this capture confirms as the same lesson (agent-declared recurrence link)")
 	c.Flags().BoolVar(&imported, "imported", false, "mark as imported (not store-local; verify not executed)")
 	c.Flags().BoolVar(&local, "local", false, "mark as store-local/trusted so its verify_cmd is executed by verify/tick/route (explicit trust; default false)")
 	return c
+}
+
+// artifactJSON returns a JSON-friendly map for one artifact, preserving the
+// struct's field shape and adding the agent-declared recurrence count (how many
+// later captures confirm this lesson). Kept as a map (not a struct field) so
+// recurrence_count stays a derived view, not a persisted column.
+func artifactJSON(a store.Artifact, recurrenceCount int) map[string]any {
+	b, _ := json.Marshal(a)
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	m["recurrence_count"] = recurrenceCount
+	return m
 }
 
 func memoryGetCmd() *cobra.Command {
@@ -279,7 +313,8 @@ func memoryGetCmd() *cobra.Command {
 			// Bump used_count: this is the full-content read in the spec.
 			_ = s.BumpUsed(args[0])
 			if jsonOut {
-				printJSON(a)
+				rc, _ := s.RecurrenceCount(args[0])
+				printJSON(artifactJSON(a, rc))
 			} else {
 				printLine(fmt.Sprintf("[%s] %s %s", a.ID, a.Kind, a.Summary))
 				printLine(fmt.Sprintf("  status=%s verify=%s local=%v tags=%v", a.Status, a.VerifyStatus, a.Local, a.Tags))

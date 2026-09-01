@@ -147,3 +147,39 @@ func repeatedSlug(text string) (string, int) {
 func itoa(n int) string {
 	return strconv.Itoa(n)
 }
+
+// Tokens returns the distinctive identifier tokens in text: lowercased,
+// single-alphanumeric identifiers with internal hyphens, minus the cheat-sheet
+// linter's stopword list. It is the same tokenizer Score uses, exposed so the
+// capture-time recurrence hint (a non-blocking autocomplete, never a link)
+// reuses the exact vocabulary instead of a second, divergent tokenizer.
+func Tokens(text string) []string {
+	var out []string
+	for _, tok := range slugRE.FindAllString(strings.ToLower(text), -1) {
+		if len(tok) < 2 || stopwords[tok] {
+			continue
+		}
+		out = append(out, tok)
+	}
+	return out
+}
+
+// SharedDistinctiveTokens returns how many distinctive tokens appear in BOTH
+// texts (the size of the intersection of their token sets). Used by the
+// assistive recurrence hint as a lazy, transparent similarity signal. It is
+// explicitly not a judge: it under-fires on real recurrences with little lexical
+// overlap and may over-fire on coincidental wording — hence the hint never
+// links anything itself.
+func SharedDistinctiveTokens(a, b string) int {
+	sa := map[string]bool{}
+	for _, t := range Tokens(a) {
+		sa[t] = true
+	}
+	n := 0
+	for _, t := range Tokens(b) {
+		if sa[t] {
+			n++
+		}
+	}
+	return n
+}

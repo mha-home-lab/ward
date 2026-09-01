@@ -176,6 +176,27 @@ func (s *Store) migrate() error {
 		return err
 	}
 	_, err = s.DB.Exec("PRAGMA user_version = 11")
+	if err != nil {
+		return err
+	}
+	// v12 (control-recurrence-links): recurrences records agent-DECLARED
+	// links from a later capture (from_id) confirming an earlier lesson
+	// (of_id) as "the same trap, surfaced differently". Ward never detects
+	// these — only records what an agent asserts via `--recurs`. Many-to-one
+	// (several captures can confirm one original), deliberately distinct from
+	// superseded_by (1:1, "this replaces that"). RecurrenceCount aggregates the
+	// confirmations into a deterministic promotion signal ("independently
+	// confirmed N times").
+	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS recurrences (
+		id       INTEGER PRIMARY KEY AUTOINCREMENT,
+		of_id    TEXT NOT NULL,   -- the earlier artifact being confirmed
+		from_id  TEXT NOT NULL,   -- the new capture that recognized it
+		note     TEXT,            -- optional: how the surface form differed
+		at       TEXT NOT NULL
+	)`); err != nil {
+		return err
+	}
+	_, err = s.DB.Exec("PRAGMA user_version = 12")
 	return err
 }
 

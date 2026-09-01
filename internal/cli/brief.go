@@ -187,6 +187,16 @@ func briefCmd() *cobra.Command {
 				line := fmt.Sprintf("%d portable topic(s) verified but not yet pushed to the global vault (%s) — run ward skill-sync so future agents in any project get them (or ward skill pack <topic> --out ~/.config/opencode/skills/<chip>)",
 					len(unsynced), strings.Join(unsynced, ", "))
 				b.Next = append([]string{line}, b.Next...)
+				// Recurrence-backed promotion candidates (control-recurrence-links):
+				// an unsynced portable topic whose lesson has been independently
+				// confirmed >= 2 times (agent-declared --recurs links) is a strong
+				// candidate for the vault. Data-driven, never semantic: the count is
+				// real the moment agents link, not when ward judges the text.
+				if cands := strongPromotionCandidates(s, unsynced); len(cands) > 0 {
+					b.Next = append([]string{
+						fmt.Sprintf("strong promotion candidate(s): %s — confirmed independently, worth pushing to the global vault", strings.Join(cands, ", ")),
+					}, b.Next...)
+				}
 			}
 			// Loop closer (control-capture-loop): surface a capture gap at the
 			// start of THIS session so the next agent can decide whether to
@@ -447,6 +457,32 @@ func unsyncedPortableTopics(s *store.Store) []string {
 		cp := filepath.Join(base, chipNameFor(t), "SKILL.md")
 		if _, err := os.Stat(cp); err != nil {
 			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// strongPromotionCandidates returns, among the given unsynced portable topics,
+// the ones whose lesson an agent has independently confirmed >= 2 times via
+// agent-declared --recurs links. These are the "recurrence-backed promotion
+// signal" topics: the same underlying trap surfaced in >= 2 distinct captures,
+// which is precisely the transferable evidence the field report wanted. Best-
+// effort (errors drop a topic) — brief is a read-only session report.
+func strongPromotionCandidates(s *store.Store, unsynced []string) []string {
+	var out []string
+	for _, t := range unsynced {
+		best := 0
+		srcs, err := s.ArtifactsForPortableTopic(t)
+		if err != nil {
+			continue
+		}
+		for _, a := range srcs {
+			if n, err := s.RecurrenceCount(a.ID); err == nil && n > best {
+				best = n
+			}
+		}
+		if best >= 2 {
+			out = append(out, fmt.Sprintf("%s (confirmed %d times)", t, best))
 		}
 	}
 	return out
