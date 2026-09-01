@@ -73,3 +73,34 @@ func TestArtifactsForPortableTopic(t *testing.T) {
 		t.Fatalf("ArtifactsForPortableTopic(\"missing\") = %d sources err=%v, want 0", len(n), err)
 	}
 }
+
+// TestPortableSourcesExcludeClaims: a claim reservation carries the portable:
+// topic tag (Claims adds `portable:<topic>` when the topic is portable), but a
+// claim is bookkeeping, NOT knowledge. It must never surface as a topic in
+// PortableTopics nor compile as a chip source in ArtifactsForPortableTopic.
+// Before this fix, an accepted claim leaked into the source set and was only
+// saved later by the transferability gate dropping it as a cheat-sheet.
+func TestPortableSourcesExcludeClaims(t *testing.T) {
+	s := openPortableTestStore(t)
+	seedTags(t, s, "portable:bash")
+	if _, err := s.DB.Exec(`INSERT INTO artifacts (id, kind, summary, content, tags, status, created_by, created_at, local)
+		VALUES ('claim:c1', 'claim', 'reservation', 'x', '["claim","portable:bash",""]', 'accepted', 'a', 't', 1)`); err != nil {
+		t.Fatal(err)
+	}
+
+	topics, err := s.PortableTopics()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(topics) != 1 || topics[0] != "bash" {
+		t.Fatalf("PortableTopics = %v, want exactly [bash] (claim must not create a topic)", topics)
+	}
+
+	srcs, err := s.ArtifactsForPortableTopic("bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(srcs) != 1 {
+		t.Fatalf("ArtifactsForPortableTopic(\"bash\") = %d sources, want 1 (claim must be excluded)", len(srcs))
+	}
+}

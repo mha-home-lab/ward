@@ -3,6 +3,35 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## [v0.9.14] — 2026-09-01 — claim reservations no longer leak into portable chip sources
+
+Found while wrangling the portable knowledge vault into a complete state: a
+**claim reservation carries the `portable:<topic>` tag** it was claimed under,
+and because `store.PortableTopics()` / `store.ArtifactsForPortableTopic()`
+matched any accepted artifact carrying the `portable:` marker, the active claim
+was swept into the chip source set. Each `skill-sync` then printed
+`EXCLUDED claim:...: instance-specific` — the claim was bookkeeping (an
+exclusive-work reservation), not knowledge, and only the transferability gate
+dropped it before it compiled into a chip. Worse, a claim could crowd out real
+sources in the fixed `LIMIT 50` source set.
+
+### Fixed
+
+- **`PortableTopics()` and `ArtifactsForPortableTopic()` now exclude
+  `kind='claim'`** artifacts. A claim is a booking record, never portable
+  knowledge: it neither surfaces a topic in the table of contents nor compiles
+  as a chip source. The portable source set is now exactly the accepted,
+  non-claim artifacts carrying the marker.
+
+### Tests
+
+- `TestPortableSourcesExcludeClaims`: an accepted claim tagged
+  `portable:<topic>` must neither add a topic to `PortableTopics()` nor count as
+  a source in `ArtifactsForPortableTopic()`.
+
+Gate: `go build ./...`, `go test ./... -race`, `gofmt -l .` empty, `go vet`
+clean.
+
 ## [v0.9.13] — 2026-09-01 — misplacement guard compares absolute paths; no false warning inside ward's own store
 
 Follow-up surfaced while capturing portable knowledge from inside the ward repo:

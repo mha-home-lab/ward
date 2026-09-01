@@ -208,11 +208,13 @@ func (s *Store) StaleArtifacts(days, limit int) ([]Artifact, error) {
 // tag can carry BOTH a topic classifier and the portable marker), and the
 // returned name is the part after `portable:` (so `topic:portable:bash` yields
 // "bash"). Matching is by substring on the `portable:` marker, never a strict
-// prefix, so a `topic:`-prefixed tag is not silently skipped.
+// prefix, so a `topic:`-prefixed tag is not silently skipped. Booking records
+// (kind='claim') are excluded: a claim reservation is not portable knowledge
+// and must never surface a topic in the table of contents.
 func (s *Store) PortableTopics() ([]string, error) {
 	rows, err := s.DB.Query(`SELECT DISTINCT jt.value FROM artifacts a,
 		json_each(a.tags) jt WHERE instr(jt.value, 'portable:') > 0 AND a.status='accepted'
-		ORDER BY jt.value`)
+		AND a.kind != 'claim' ORDER BY jt.value`)
 	if err != nil {
 		return nil, err
 	}
@@ -249,13 +251,16 @@ func portableTopicName(tag string) string {
 // `topic:portable:<name>`). It complements PortableTopics (which yields topic
 // names): given a stripped name this resolves the source artifacts the sync /
 // pack pipeline compiles into a chip. Matching is a substring on the tag so a
-// `topic:`-prefixed spelling is never missed.
+// `topic:`-prefixed spelling is never missed. Booking records (kind='claim')
+// are excluded: a claim reservation carries the topic tag but is bookkeeping,
+// not knowledge, and must not compile into a chip.
 func (s *Store) ArtifactsForPortableTopic(name string) ([]Artifact, error) {
 	marker := "portable:" + name
 	rows, err := s.DB.Query(`SELECT id, kind, summary, content, tags, status, created_by, created_at,
 		used_count, superseded_by, superseded_reason, superseded_at, promoted_at, promoted_by,
 		promoted_reason, source_session, source_agent, project, verify_cmd, verify_kind,
 		verify_status, verify_at, ceremony_level, expires_at, local FROM artifacts WHERE status='accepted'
+		AND kind != 'claim'
 		AND EXISTS (SELECT 1 FROM json_each(artifacts.tags) jt WHERE instr(jt.value, ?) > 0)
 		ORDER BY used_count DESC, created_at DESC LIMIT 50`, marker)
 	if err != nil {
