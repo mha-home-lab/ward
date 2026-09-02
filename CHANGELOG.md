@@ -3,6 +3,49 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## [v0.10.0] — 2026-09-02 — autonomous porting (density scoring, put dry-run, put/verify reconcile)
+
+Field session porting knowledge to the global vault taught three frictions that
+turned "capture -> pack -> sync" into a rewrite loop. This release removes each
+so the happy path is one clean pass:
+
+- **The lint was vocabulary-blind.** `Score()`'s generalization trigger was a
+  preset word list and the slug-repeat penalty only fired when no preset word
+  was present — so a dense, concrete, transferable mechanism that unavoidably
+  repeats domain nouns (`config`, `key`, `realm`, `crds`) was expelled as
+  "instance-specific", and the graver rewarded puffy prose over mechanism
+  density. Transferability now counts **structural density**: a body with ≥ 6
+  distinct non-stopword terms and no verbatim/path/argv signal reads as a
+  mechanism, contributing to the generalization side and suppressing the
+  slug-repeat penalty. The field fixtures (collatz/bowling) still score as
+  cheat-sheets; a dense body that ALSO copies exact output still scores as one.
+- **No fast feedback at the write.** The score only surfaced deep in
+  pack/lint output. `ward memory put --dry-run` now prints the transferability
+  score + fired signals + a PASS/FAIL verdict for a `portable:*` capture
+  BEFORE writing anything — write it once, correctly, no supersede loop.
+- **`put` and `verify` disagreed on "declared".** `put --verify-cmd` stored
+  `VerifyCmd` but left `VerifyKind` empty, so `ward verify` reported "no
+  verify_cmd declared" for artifacts that provably had one. `put` now defaults
+  an unset `--verify-kind` to `shell` when `--verify-cmd` is given, so the
+  command is actually runnable by verify/tick (still gated on the D0.3 `Local`
+  trust boundary; `put` never executes it).
+
+### Added
+
+- `internal/transferability` `Score()`: `densityFloor` / `hasDensity` /
+  `distinctTokenCount` — structural-density generalization signal.
+- `internal/cli` `previewTransferability()` + `memory put --dry-run` — write-once
+  score preview resolving the first `portable:` tag exactly like the pack gate.
+- `memory put` verify-kind default to `shell` when verify-cmd is set without a
+  kind — reconciles the put/verify contract.
+
+### Fixed
+
+- Dense, concrete, transferable mechanism bodies are no longer expelled for
+  repeating legitimate domain nouns.
+- `ward verify` no longer reports "no verify_cmd declared" for an artifact whose
+  `put` actually declared one.
+
 ## [v0.9.15] — 2026-09-01 — agent-declared recurrence links for portable knowledge
 
 The field report asked for a stronger promotion signal than "this topic has

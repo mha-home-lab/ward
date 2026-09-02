@@ -178,7 +178,7 @@ func memoryCmd() *cobra.Command {
 
 func memoryPutCmd() *cobra.Command {
 	var kind, summary, content, tags, verifyCmd, verifyKind, project, by, ceremony string
-	var imported, local bool
+	var imported, local, dryRun bool
 	var recurs string
 	c := &cobra.Command{
 		Use:   "put",
@@ -217,6 +217,17 @@ func memoryPutCmd() *cobra.Command {
 			// malicious verify_cmd and letting verify/tick/route run it.
 			localTrust := local || strings.EqualFold(by, "human")
 			isLocal := localTrust && !imported
+			// Reconcile put vs verify: when a transport declares --verify-cmd
+			// but no --verify-kind, default the kind to "shell" so verification
+			// can actually run it. Without this, VerifyCmd is set but VerifyKind
+			// stays "", and verification.Run reports "no verify_cmd declared" —
+			// the two subsystems contradicted each other and routed agents into
+			// dead DB surgery. This does NOT run the command here (the D0.3
+			// trust boundary keeps put guilty-by-default); it only makes the
+			// declared verify_cmd a runnable claim for verify/tick.
+			if verifyCmd != "" && verifyKind == "" {
+				verifyKind = "shell"
+			}
 			a := store.Artifact{
 				Kind: kind, Summary: summary, Content: content,
 				Tags: splitCSV(tags), Status: "proposed",
@@ -225,6 +236,20 @@ func memoryPutCmd() *cobra.Command {
 			}
 			warnIfMisplaced(splitCSV(tags), cliProjectFlag(cmd))
 			warnIfCheatSheet(splitCSV(tags), summary, content)
+			// --dry-run: preview the transferability score + signals for a
+			// portable:* capture WITHOUT writing anything. This is the fast
+			// feedback that lets an agent write a chip once, correctly, instead
+			// of the capture -> pack -> supersede rewrite loop. It opens no
+			// write and returns before any artifact is stored.
+			if dryRun {
+				previewTransferability(splitCSV(tags), summary, content)
+				if jsonOut {
+					printJSON(map[string]bool{"dry_run": true})
+				} else {
+					printLine("dry-run: nothing written")
+				}
+				return nil
+			}
 			id, err := s.UpsertArtifact(a)
 			if err != nil {
 				return failErr(err)
@@ -276,6 +301,7 @@ func memoryPutCmd() *cobra.Command {
 	c.Flags().StringVar(&recurs, "recurs", "", "id of an existing artifact this capture confirms as the same lesson (agent-declared recurrence link)")
 	c.Flags().BoolVar(&imported, "imported", false, "mark as imported (not store-local; verify not executed)")
 	c.Flags().BoolVar(&local, "local", false, "mark as store-local/trusted so its verify_cmd is executed by verify/tick/route (explicit trust; default false)")
+	c.Flags().BoolVar(&dryRun, "dry-run", false, "preview the transferability score + signals for a portable:* capture without writing an artifact")
 	return c
 }
 

@@ -1,6 +1,9 @@
 package transferability
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestScoreFieldCaseFixtures is the real acceptance test: the collatz/bowling
 // batch (verbatim from the field case that forced this linter) MUST score as
@@ -65,6 +68,54 @@ func TestScorePureSignalBottomsOut(t *testing.T) {
 	r := Score("x", "", "x prints exactly '1'; x prints exactly '2'; x prints exactly '3'; x prints exactly '4'; x prints exactly '5'; x prints exactly '6'")
 	if r.Score != -5 {
 		t.Errorf("cheat cap: expected -5, got %d", r.Score)
+	}
+}
+
+// TestScoreDenseMechanismWithoutMagicWords: a dense, concrete, transferable
+// mechanism body that repeats legitimate domain nouns (Keycloak's "config",
+// "key", "realm", "crds"... the exact shape the field feedback flagged) but
+// contains NO preset generalization word and NO verbatim/path/argv must NOT be
+// expelled. Density is a structural generalization signal; the slug-repeat
+// penalty must not fire on it.
+func TestScoreDenseMechanismWithoutMagicWords(t *testing.T) {
+	content := "keycloak realm config key rollout: the admin marks the new key, then crds users map the old key to the realm before the plugin token rotates; order of config apply decides which realm key the user sees"
+	r := Score("portable:keycloak", "", content)
+	if r.CheatSheet {
+		t.Errorf("dense mechanism with no magic words must NOT be a cheat-sheet: score=%d signals=%v", r.Score, r.Signals)
+	}
+	if r.Score < 1 {
+		t.Errorf("dense mechanism must contribute at least +1 generalization, got %d", r.Score)
+	}
+	found := false
+	for _, sgn := range r.Signals {
+		if strings.Contains(sgn, "dense mechanism") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a 'dense mechanism' signal, got %v", r.Signals)
+	}
+}
+
+// TestScoreDenseDoesNotMaskVerbatim: density is a generalization signal ONLY
+// when the body is free of the hard cheat signals. A dense body that also
+// copies exact output must still be a cheat-sheet — a long text must not launder
+// an answer-copy into the global vault.
+func TestScoreDenseDoesNotMaskVerbatim(t *testing.T) {
+	content := "keycloak realm config key rollout the admin marks the new key then crds users map the old key prints exactly 'k:secret' before the plugin token rotates and the realm config key applies"
+	r := Score("portable:keycloak", "", content)
+	if !r.CheatSheet {
+		t.Errorf("dense body with a verbatim string must STILL be a cheat-sheet: score=%d signals=%v", r.Score, r.Signals)
+	}
+}
+
+// TestScoreShortSlugBulletStillCheatSheet: the short slug-bullet shape (the
+// collatz/bowling field case) stays a cheat-sheet — density floor is
+// deliberately set above it.
+func TestScoreShortSlugBulletStillCheatSheet(t *testing.T) {
+	r := Score("bowling", "", "bowling take '-' for a miss")
+	if !r.CheatSheet {
+		t.Errorf("short slug bullet must stay a cheat-sheet: score=%d signals=%v", r.Score, r.Signals)
 	}
 }
 

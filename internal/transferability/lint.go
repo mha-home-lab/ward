@@ -59,6 +59,13 @@ var stopwords = map[string]bool{
 // internal hyphens) — the shape of an exercise slug like "collatz" or "bowling".
 var slugRE = regexp.MustCompile(`\b[a-z][a-z0-9]{1,}(?:-[a-z0-9]+)*\b`)
 
+// densityFloor is the minimum number of distinct non-stopword terms a body
+// needs before it counts as a structurally dense mechanism rather than a bare
+// repeated-slug bullet. Kept conservative so the short collatz/bowling slugs
+// (3-4 terms) stay well under it. The exact value is a tuning knob — the field
+// fixtures plus the dense-domain fixture pin it on both sides.
+const densityFloor = 6
+
 // Score evaluates topic, summary and content together for transferability.
 // It is a PURE function: same inputs, same result. No I/O, no model call.
 func Score(topic, summary, content string) LintResult {
@@ -83,8 +90,12 @@ func Score(topic, summary, content string) LintResult {
 		signals = append(signals, "argv indexing: "+m)
 	}
 	// Cheat-sheet: a bare exercise-slug identifier repeated 2+ times with no
-	// nearby generalization word (the collatz/bowling batch shape).
-	if !hasGeneralization(text) {
+	// nearby generalization word (the collatz/bowling batch shape). This is
+	// the lexical heuristic that expels dense domain nouns, so it is also
+	// suppressed by structural density: a body dense enough to read as a real
+	// mechanism (and free of the hard cheat signals above) is not a slug list,
+	// even if it repeats unstoppable domain words like "config" or "key".
+	if !hasGeneralization(text) && !hasDensity(text) {
 		if slug, n := repeatedSlug(text); n >= 2 {
 			cheat++
 			signals = append(signals, "exercise-slug "+slug+" repeated "+itoa(n)+"x with no generalization language")
@@ -98,6 +109,16 @@ func Score(topic, summary, content string) LintResult {
 			signals = append(signals, "generalization: "+w)
 		}
 	}
+	// Portable: structural density. A concrete mechanism body with enough
+	// distinctive terms reads as generalizable even when it avoids the preset
+	// generalization vocabulary. It MUST NOT fire alongside a hard cheat signal
+	// (verbatim/path/argv) or a dense but answer-copy body would be masked.
+	if hardCheat := cheat > 0; !hasGeneralization(text) && !hardCheat {
+		if n := distinctTokenCount(text); n >= densityFloor {
+			gen++
+			signals = append(signals, "dense mechanism: "+itoa(n)+" distinctive terms")
+		}
+	}
 
 	score := min(gen, 3) - min(cheat, 5)
 	return LintResult{
@@ -105,6 +126,27 @@ func Score(topic, summary, content string) LintResult {
 		CheatSheet: score <= 0,
 		Signals:    signals,
 	}
+}
+
+// hasDensity reports whether the text is substantively dense enough to read as
+// a mechanism rather than a bare repeated-slug bullet, using the same
+// stopword-filtered tokenization the linter already exposes via Tokens.
+func hasDensity(text string) bool {
+	return distinctTokenCount(text) >= densityFloor
+}
+
+// distinctTokenCount returns the number of DISTINCT non-stopword identifier
+// tokens in text — the thickness of a body's concrete vocabulary, which is what
+// separates a real mechanism from a repeated-slug bullet.
+func distinctTokenCount(text string) int {
+	seen := map[string]bool{}
+	for _, tok := range slugRE.FindAllString(strings.ToLower(text), -1) {
+		if len(tok) < 2 || stopwords[tok] {
+			continue
+		}
+		seen[tok] = true
+	}
+	return len(seen)
 }
 
 // hasGeneralization reports whether any generalization word appears in text.

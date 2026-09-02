@@ -41,6 +41,33 @@ func warnIfCheatSheet(tags []string, summary, content string) {
 	}
 }
 
+// previewTransferability is the write-once feedback gate: it scores a
+// portable:* capture the SAME way the pack gate will decide it and prints the
+// score + fired signals + a one-line verdict BEFORE the artifact is written.
+// It resolves the first portable tag exactly like warnIfCheatSheet so preview
+// and the real put never disagree about which tag is scored. Returns whether it
+// printed (i.e. a portable tag was present). Used by `memory put --dry-run`.
+func previewTransferability(tags []string, summary, content string) (portalable string, printed bool) {
+	for _, t := range tags {
+		if name := portableTopicName(t); name != "" {
+			r := transferability.Score(name, summary, content)
+			verdict := "would PASS the transferability gate"
+			if r.CheatSheet {
+				verdict = "would FAIL the transferability gate (instance-specific)"
+			}
+			fmt.Fprintf(os.Stderr, "transferability %s: score %d (%s)\n", t, r.Score, verdict)
+			for _, s := range r.Signals {
+				fmt.Fprintf(os.Stderr, "  - %s\n", s)
+			}
+			if r.CheatSheet {
+				fmt.Fprintln(os.Stderr, "  hint: add a causal 'because ...' hinge or let the body's concrete mechanism stand on its own density; avoid verbatim output / paths in a portable chip")
+			}
+			return name, true
+		}
+	}
+	return "", false
+}
+
 // hintIfRecurrence is the assistive recurrence autocomplete (signal 5): when a
 // new portable:* capture shares enough distinctive tokens with an existing
 // artifact under the SAME topic, it returns a non-blocking hint suggesting

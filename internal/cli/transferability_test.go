@@ -8,6 +8,7 @@ import (
 
 	"github.com/mha-home-lab/ward/internal/orchestration"
 	"github.com/mha-home-lab/ward/internal/store"
+	"github.com/mha-home-lab/ward/internal/verification"
 )
 
 // seedPortableArtifact inserts an accepted artifact tagged portable:bash with
@@ -378,5 +379,114 @@ func TestWarnIfCheatSheetFirstPortableOnly(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), "portable:two") {
 		t.Fatalf("expected only the first portable tag to be scored, got:\n%s", buf.String())
+	}
+}
+
+// TestMemoryPutDryRunPreviewsAndWritesNothing: `put --dry-run` for a portable:*
+// capture prints the transferability score + verdict on stderr and returns
+// WITHOUT writing any artifact — the fast feedback that replaces the
+// capture -> pack -> supersede rewrite loop.
+func TestMemoryPutDryRunPreviewsAndWritesNothing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WARD_HOME", home)
+	t.Chdir(t.TempDir())
+
+	cmd := memoryPutCmd()
+	setPutFlags(cmd, t, "s", "", "", "agent", "false")
+	if err := cmd.Flags().Set("tags", "portable:test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("content", "the mechanism is reusable because ordering the config key apply decides which realm key the token rotation uses next"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("dry-run", "true"); err != nil {
+		t.Fatal(err)
+	}
+	buf, restore := captureStderr()
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	restore()
+	if !strings.Contains(buf.String(), "transferability") || !strings.Contains(buf.String(), "score") {
+		t.Fatalf("dry-run must preview the score on stderr, got:\n%s", buf.String())
+	}
+
+	s, err := store.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB.Close()
+	all, _ := s.ListArtifacts("", "", "", 10)
+	if len(all) != 0 {
+		t.Fatalf("dry-run must NOT write an artifact, got %d", len(all))
+	}
+}
+
+// TestMemoryPutVerifyKindDefaultsToShell: when put declares --verify-cmd but
+// no --verify-kind, the artifact's VerifyKind defaults to "shell" so ward verify
+// actually runs it and does NOT report "no verify_cmd declared" — reconciling
+// the put vs verify contract (feedback item C).
+func TestMemoryPutVerifyKindDefaultsToShell(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WARD_HOME", home)
+	t.Chdir(t.TempDir())
+
+	cmd := memoryPutCmd()
+	setPutFlags(cmd, t, "s", "printf ok", "", "human", "true") // by=human => local/trusted
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := store.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, _ := s.ListArtifacts("", "", "", 10)
+	if len(all) != 1 {
+		s.DB.Close()
+		t.Fatalf("expected 1 artifact, got %d", len(all))
+	}
+	a := all[0]
+	if a.VerifyKind != "shell" {
+		s.DB.Close()
+		t.Fatalf("VerifyKind must default to shell, got %q", a.VerifyKind)
+	}
+	if !a.Local {
+		s.DB.Close()
+		t.Fatalf("by=human must set local trust so verify may run")
+	}
+	res := verification.Run(a, "")
+	s.DB.Close()
+	if res.Status == "unknown" || strings.Contains(res.Detail, "no verify_cmd declared") {
+		t.Fatalf("verify must run the declared shell cmd, got status=%s detail=%q", res.Status, res.Detail)
+	}
+}
+
+// TestPreviewTransferabilityVerdict: the preview helper prints PASS for a
+// portable, generalizable capture and FAIL for an instance-specific one, and
+// only prints when a portable tag is present.
+func TestPreviewTransferabilityVerdict(t *testing.T) {
+	buf, restore := captureStderr()
+	name, printed := previewTransferability([]string{"portable:key"}, "x", "the mechanism is reusable because the config key apply order decides which value the token uses next")
+	restore()
+	if !printed || name != "key" {
+		t.Fatalf("expected a printed preview for portable:key, got printed=%v name=%q", printed, name)
+	}
+	if !strings.Contains(buf.String(), "would PASS") {
+		t.Fatalf("expected a PASS verdict, got:\n%s", buf.String())
+	}
+
+	buf, restore = captureStderr()
+	_, printed = previewTransferability([]string{"portable:x"}, "x", "collatz prints exactly 'Error'")
+	restore()
+	if !printed || !strings.Contains(buf.String(), "would FAIL") {
+		t.Fatalf("expected a FAIL verdict for a cheat-sheet, got:\n%s", buf.String())
+	}
+
+	buf, restore = captureStderr()
+	_, printed = previewTransferability([]string{"topic:auth"}, "x", "anything")
+	restore()
+	if printed || buf.String() != "" {
+		t.Fatalf("expected no preview for a non-portable tag, got printed=%v out=%q", printed, buf.String())
 	}
 }
