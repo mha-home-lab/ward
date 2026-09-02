@@ -136,3 +136,31 @@ func TestMisplacementGuardInsideWardStore(t *testing.T) {
 		t.Fatalf("writing portable:-tagged item in ward's own store must NOT warn, got: %s", buf.String())
 	}
 }
+
+// TestWarnIfMisplaced: the misfire regression. `warnIfMisplaced` exists for
+// content about WARD ITSELF, not "tagged with the general portable mechanism".
+// An ordinary `portable:bash` (or any non-ward portable topic) filed OUTSIDE
+// ward's own store must NOT be treated as a ward-itself request — otherwise the
+// routine off-pool port workflow (v0.10.1 ship chain) gets a false warning on
+// every capture. Only tags `ward` or `portable:ward` are ward-itself.
+func TestWarnIfMisplaced(t *testing.T) {
+	otherHome := t.TempDir()
+	t.Setenv("WARD_HOME", otherHome)
+	t.Setenv("WARD_PROJECT_WARD_HOME", "") // "ward" not registered -> outside ward's store
+
+	// 1) ordinary portable topic -> NO ward-itself warning.
+	buf, restore := captureStderr()
+	warnIfMisplaced([]string{"portable:bash"}, "")
+	restore()
+	if strings.Contains(buf.String(), "tagged for WARD itself") {
+		t.Fatalf("ordinary portable:bash must NOT warn, got: %s", buf.String())
+	}
+
+	// 2) genuine ward-itself portable topic -> warns.
+	buf2, restore2 := captureStderr()
+	warnIfMisplaced([]string{"portable:ward"}, "")
+	restore2()
+	if !strings.Contains(buf2.String(), "tagged for WARD itself") {
+		t.Fatalf("portable:ward must warn as ward-itself, got: %s", buf2.String())
+	}
+}

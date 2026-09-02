@@ -29,6 +29,23 @@ func Open() (*Store, error) {
 	return openDB(filepath.Join(Home(), "ward.db"))
 }
 
+// HasTaskOrRunHistory reports whether the store contains any dispatch-pool task
+// or any workflow run — i.e. whether this store carries real ward history
+// rather than a one-off portable-knowledge port session (which produces only
+// artifacts). `skill-sync --cleanup` uses it as the safety guard before it
+// removes the local store: non-zero rows in either table means this is a real
+// project worth keeping, and cleanup refuses.
+func (s *Store) HasTaskOrRunHistory() (bool, error) {
+	var tasks, runs int
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM tasks").Scan(&tasks); err != nil {
+		return false, err
+	}
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM runs").Scan(&runs); err != nil {
+		return false, err
+	}
+	return tasks > 0 || runs > 0, nil
+}
+
 // Init creates the base schema + FTS5 triggers, then applies additive
 // migrations idempotently up to the current user_version. It never rewrites an
 // existing table: new columns arrive via ALTER so databases opened from an

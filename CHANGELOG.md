@@ -3,6 +3,37 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## [v0.10.2] — 2026-09-02 — port-session misfire fix + skill-sync --cleanup bookend
+
+Two frictions around one-off knowledge-port sessions:
+
+- **`warnIfMisplaced` misfired on every portable capture.** Its trigger was
+  `portableTopicName(t) != ""`, true for ANY `portable:*` tag, not just
+  content about ward itself — so the routine off-pool ship-workflow chain
+  (v0.10.1) warned falsely on every capture filed outside ward's own store.
+  Narrowed to `portable:ward` (ward-itself content only), matching the
+  function's own doc comment. Ordinary `portable:bash`-style captures no
+  longer misfire; genuine `portable:ward` requests still warn.
+- **No closing bookend for a one-off port session.** `skill-sync --cleanup`
+  removes the local `.ward` store after a successful sync, explicitly
+  opted-in (never inferred), only at success sinks (a failed sync's evidence
+  is never deleted), and with two safety guards: it refuses if the store has
+  task/run history (a real project — not a scratch port session) and refuses
+  if every topic was skipped (nothing synced). Removal is reported in the
+  single `--json` document as `.cleanup.removed`.
+
+### Fixed
+
+- `warnIfMisplaced` no longer fires on every `portable:*` capture outside
+  ward's store — only content genuinely about ward itself (`ward`,
+  `portable:ward`).
+
+### Added
+
+- `skill-sync --cleanup` — one-off port session bookend: after a successful
+  sync, remove the local `.ward` store (guarded by task/run-history refusal).
+- `store.HasTaskOrRunHistory()` — the guard the cleanup safety check uses.
+
 ## [v0.10.1] — 2026-09-02 — protocol text chains capture -> preview -> search -> skill-sync
 
 The three tools that make off-pool knowledge-shipping a single clean pass —

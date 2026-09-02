@@ -48,7 +48,7 @@ func versionString() string {
 var jsonOut bool
 
 // warnIfMisplaced warns when an item that is clearly about WARD itself (tagged
-// `ward` or `portable:`) is being filed into a store that is NOT ward's own
+// `ward` or `portable:ward`) is being filed into a store that is NOT ward's own
 // store. This is the guard against the recurring failure where an agent working
 // in some project X writes a ward feature request into X's store, where ward's
 // own agents never see it. The fix is to target ward's store explicitly with
@@ -56,7 +56,7 @@ var jsonOut bool
 func warnIfMisplaced(tags []string, project string) {
 	wardish := false
 	for _, t := range tags {
-		if t == "ward" || portableTopicName(t) != "" {
+		if t == "ward" || portableTopicName(t) == "ward" {
 			wardish = true
 			break
 		}

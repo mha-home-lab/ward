@@ -22,7 +22,7 @@ import (
 // survive); --force --reason overrides and records the exception.
 func syncCmd() *cobra.Command {
 	var dir, reason string
-	var force bool
+	var force, cleanup bool
 	c := &cobra.Command{
 		Use:   "skill-sync",
 		Short: "push all portable:<topic> knowledge to the global skills directory",
@@ -86,6 +86,52 @@ func syncCmd() *cobra.Command {
 				}
 				results = append(results, r)
 			}
+			// cleanupLocal is the `--cleanup` safety check: a one-off port
+			// session has its local .ward store removed AFTER a successful sync.
+			// It runs ONLY at success sinks — never on the error returns above,
+			// so a failed sync never has its evidence deleted out from under the
+			// agent. Returns a JSON map describing what happened (empty when
+			// cleanup is not requested, refused, or aborted) so the caller can
+			// merge it into a single --json document, and prints one human line
+			// when not in --json mode. Resolves cleanup BEFORE the store is
+			// closed, and closes the store itself just before removal.
+			cleanupLocal := func() map[string]any {
+				if !cleanup {
+					return map[string]any{}
+				}
+				req, cerr := s.HasTaskOrRunHistory()
+				if cerr != nil {
+					fmt.Fprintf(os.Stderr, "cleanup aborted: could not inspect store (%v); nothing removed\n", cerr)
+					return map[string]any{"cleanup": map[string]any{"removed": false, "refused": "could not inspect store"}}
+				}
+				if req {
+					fmt.Fprintln(os.Stderr, "cleanup refused: store has task/run history beyond this port session; --cleanup refuses to remove it")
+					return map[string]any{"cleanup": map[string]any{"removed": false, "refused": "task/run history present"}}
+				}
+				// Nothing would have been synced (every topic gate failed) —
+				// the agent should see that failure, not have its evidence
+				// deleted out from under it.
+				wrote := 0
+				for _, r := range results {
+					if r.Skipped == "" {
+						wrote++
+					}
+				}
+				if wrote == 0 {
+					fmt.Fprintln(os.Stderr, "cleanup refused: every portable topic was skipped (nothing synced); not deleting the store under a failed sync")
+					return map[string]any{"cleanup": map[string]any{"removed": false, "refused": "nothing synced"}}
+				}
+				home := s.Home
+				s.DB.Close()
+				if err := os.RemoveAll(home); err != nil {
+					fmt.Fprintf(os.Stderr, "cleanup failed: %v\n", err)
+					return map[string]any{"cleanup": map[string]any{"removed": false, "error": err.Error()}}
+				}
+				if !jsonOut {
+					printLine("removed one-off port session store: " + home)
+				}
+				return map[string]any{"cleanup": map[string]any{"removed": true, "path": home}}
+			}
 			if jsonOut {
 				synced := []map[string]any{}
 				for _, r := range results {
@@ -109,11 +155,16 @@ func syncCmd() *cobra.Command {
 					}
 					synced = append(synced, row)
 				}
-				printJSON(map[string]any{"dir": dir, "topics": topics, "synced": synced})
+				out := map[string]any{"dir": dir, "topics": topics, "synced": synced}
+				for k, v := range cleanupLocal() {
+					out[k] = v
+				}
+				printJSON(out)
 				return nil
 			}
 			if len(topics) == 0 {
 				printLine("no portable:<topic> knowledge accepted yet")
+				cleanupLocal()
 				return nil
 			}
 			for _, r := range results {
@@ -129,11 +180,13 @@ func syncCmd() *cobra.Command {
 					fmt.Printf("    FORCED %s: instance-specific cheat-sheet synced anyway (reason: %s)\n", a.ID, reason)
 				}
 			}
+			cleanupLocal()
 			return nil
 		},
 	}
 	c.Flags().StringVar(&dir, "dir", "", "override target skills directory")
 	c.Flags().StringVar(&reason, "reason", "", "required with --force: why a cheat-sheet source is being synced to the global vault anyway")
 	c.Flags().BoolVar(&force, "force", false, "bypass the transferability lint for portable chips synced to the global skills dir (needs --reason)")
+	c.Flags().BoolVar(&cleanup, "cleanup", false, "one-off port session: after a successful sync, remove the local .ward store (refuses if the store has task/run history)")
 	return c
 }

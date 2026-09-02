@@ -400,3 +400,78 @@ func TestCaptureJSONHonestCounts(t *testing.T) {
 		t.Fatalf("single-node capture must record exactly one id: %v", m)
 	}
 }
+
+// TestSkillSyncCleanupRemovesOneOffStore: in a one-off portable-knowledge port
+// session (only artifacts, no task/run history), `skill-sync --cleanup` pushes
+// the chip to the global dir AND removes the local .ward store, reporting the
+// removal in the single --json document as .cleanup.removed.
+func TestSkillSyncCleanupRemovesOneOffStore(t *testing.T) {
+	storeParent := newSurfaceStore(t)
+	home := storeParent + string(filepath.Separator) + ".ward" // newSurfaceStore sets WARD_HOME=<dir>/.ward
+	if _, err := os.Stat(home); err != nil {
+		t.Fatalf("store must exist before cleanup: %v", err)
+	}
+	putLocalFact(t, storeParent, "the config key apply order decides which realm key the token rotation uses next because the mechanism generalizes", "portable", "portable:test")
+
+	target := filepath.Join(t.TempDir(), "skills")
+	out := jsonRun(t, syncCmd(), []string{"--dir", target, "--cleanup"})
+	m := parseNoNull(t, out)
+	cleanup, _ := m["cleanup"].(map[string]any)
+	if cleanup == nil || cleanup["removed"] != true {
+		t.Fatalf("expected cleanup.removed true, got: %v", m)
+	}
+	if _, err := os.Stat(home); !os.IsNotExist(err) {
+		t.Fatalf("local .ward must be removed after --cleanup, stat err=%v", err)
+	}
+	// The chip WAS synced before removal.
+	if _, err := os.Stat(filepath.Join(target, "ward-test", "SKILL.md")); err != nil {
+		t.Fatalf("chip must be synced before cleanup: %v", err)
+	}
+}
+
+// TestSkillSyncCleanupRefusesOnTaskHistory: a store with real ward history (a
+// dispatch task exists) must NOT be removed by --cleanup, however it is
+// requested — deleting a real project's store dressed as tidiness is a loss.
+func TestSkillSyncCleanupRefusesOnTaskHistory(t *testing.T) {
+	storeParent := newSurfaceStore(t)
+	putLocalFact(t, storeParent, "the config key apply order decides which realm key the token rotation uses next because the mechanism generalizes", "portable", "portable:test")
+	execCmd(taskAddCmd(), t, []string{"real work"}, map[string]string{"run": "go version", "tier": "mid"})
+
+	target := filepath.Join(t.TempDir(), "skills")
+	buf, restore := captureStderr()
+	out := jsonRun(t, syncCmd(), []string{"--dir", target, "--cleanup"})
+	restore()
+	if !strings.Contains(buf.String(), "refuses to remove") {
+		t.Fatalf("expected refusal message on stderr, got: %s", buf.String())
+	}
+	m := parseNoNull(t, out)
+	cleanup, _ := m["cleanup"].(map[string]any)
+	if cleanup == nil || cleanup["removed"] != false {
+		t.Fatalf("expected cleanup.removed false, got: %v", m)
+	}
+	if _, err := os.Stat(filepath.Join(storeParent, ".ward")); err != nil {
+		t.Fatalf(".ward must be preserved under a task-history refusal, stat err=%v", err)
+	}
+}
+
+// TestSkillSyncCleanupRefusesWhenNothingSynced: --cleanup must not delete the
+// store when every portable topic's gate failed (all sources cheat-sheet) —
+// the evidence of a failed sync must stay for the agent to inspect.
+func TestSkillSyncCleanupRefusesWhenNothingSynced(t *testing.T) {
+	storeParent := newSurfaceStore(t)
+	// A cheat-sheet-only portable source: gate strips it, topic is skipped.
+	putLocalFact(t, storeParent, "x prints exactly 'error'", "collatz", "portable:test")
+
+	target := filepath.Join(t.TempDir(), "skills")
+	buf, restore := captureStderr()
+	out := jsonRun(t, syncCmd(), []string{"--dir", target, "--cleanup"})
+	restore()
+	if !strings.Contains(buf.String(), "nothing synced") && !strings.Contains(buf.String(), "refuses") {
+		t.Fatalf("expected a refusal when nothing synced, got: %s", buf.String())
+	}
+	m := parseNoNull(t, out)
+	if _, err := os.Stat(filepath.Join(storeParent, ".ward")); err != nil {
+		t.Fatalf(".ward must be preserved when nothing was synced, stat err=%v", err)
+	}
+	_ = m
+}
