@@ -3,6 +3,30 @@
 All notable changes to WARD. History and session detail live in
 `.arch/tasks.md`; this file is the distilled release view.
 
+## [v0.10.1] — 2026-09-02 — protocol text chains capture -> preview -> search -> skill-sync
+
+The three tools that make off-pool knowledge-shipping a single clean pass —
+`memory put --dry-run` (score preview), `memory search --tag topic:portable:<t>`
+(find a prior lesson to `--recurs`), and `skill-sync` (push to the canonical
+global path) — already existed but none was mentioned in the injected protocol
+text a fresh agent reads. Step 6's off-pool exception showed `memory put` and
+stopped, so a diligent single-session agent captured a lesson correctly and it
+still never reached the vault until a later session's `brief` nudge caught the
+gap.
+
+The protocol block's step 6 (the ONE EXCEPTION) now spells the full chain in the
+order an agent uses it: **preview** with `--dry-run` before writing, **search**
+for an existing lesson to link with `--recurs <id>` instead of duplicating, then
+**`skill-sync` as the mandatory last step** — a captured lesson that never syncs
+never reaches the next agent. Protocol version `v5` → `v6`; the idempotent
+refresh means existing AGENTS.md files pick it up on next `ward init`, no manual
+migration.
+
+Deliberately NOT built: no `ship <id>` command (`skill-sync` already is that
+command and recompiles all portable topics, resolving topic and chip name from
+the artifact's own tags) and no `--tags`/`--tag` rename (put's list-valued
+`--tags` vs search/pack's exact-filter `--tag` are correctly different).
+
 ## [v0.10.0] — 2026-09-02 — autonomous porting (density scoring, put dry-run, put/verify reconcile)
 
 Field session porting knowledge to the global vault taught three frictions that

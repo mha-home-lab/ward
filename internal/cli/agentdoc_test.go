@@ -142,3 +142,24 @@ func TestEnsureAgentDocsOnlyUpdatesExistingExtras(t *testing.T) {
 		t.Fatal("GEMINI.md must not be invented when absent")
 	}
 }
+
+// TestAgentDocVersion gates the syntactic protocol contract a fresh agent
+// reads: the managed block carries the current version marker and spells out
+// the off-pool shipping chain end to end (preview -> search/recurs ->
+// skill-sync as the mandatory last step) so a captured lesson actually reaches
+// the global vault instead of stalling until a later brief nudge.
+func TestAgentDocVersion(t *testing.T) {
+	body := agentDocBlock()
+	for _, want := range []string{
+		docStart, // current version marker (v6)
+		"memory put --dry-run",
+		`ward memory search "<keywords>" --tag topic:portable:<topic>`,
+		"--recurs <id>",
+		"ward skill-sync",
+		"never reaches the next agent",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("protocol body missing %q:\n%s", want, body)
+		}
+	}
+}

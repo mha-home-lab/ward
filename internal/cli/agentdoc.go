@@ -18,7 +18,7 @@ const (
 	// can advance (v1 -> v2 ...) and older files are still detected and
 	// refreshed in place instead of accumulating duplicate blocks.
 	docStartPrefix = "<!-- ward:protocol"
-	docStart       = docStartPrefix + " v5 -->"
+	docStart       = docStartPrefix + " v6 -->"
 	docEnd         = "<!-- /ward:protocol -->"
 )
 
@@ -75,14 +75,18 @@ never re-solve solved problems and never trust stale claims.
    artifacts tagged by node id. Do NOT hand-type ward memory put; never write
    a verify_cmd you would not run yourself. THE ONE EXCEPTION: work done
    OUTSIDE ward task run (a green-field batch, an exploratory session) that
-   surfaces a new, generalizable lesson must be captured manually — as
-        ward memory put --local --tags portable:<topic> \
-            --summary "..." --content "..." --verify-cmd "<cmd>"
-    before ward memory handoff. This is the case hand-typing is correct, not
-    a violation of this step: compounding requires knowledge to flow back in
-    from off-pool work, not just out. If this lesson is the same underlying
-    trap as an existing portable artifact in different wording, link it with
-    '--recurs <id>' instead of filing an unrelated duplicate.
+   surfaces a new, generalizable lesson must be captured manually. Preview it
+   first —
+        ward memory put --dry-run --tags portable:<topic> \
+            --summary "..." --content "..."
+   to see the transferability score before writing. Before writing, check
+        ward memory search "<keywords>" --tag topic:portable:<topic>
+   for an existing lesson to link with '--recurs <id>' instead of duplicating
+   it. Once written: run  ward skill-sync  to push it to the global vault —
+   this is the last step, not optional; a captured lesson that never syncs
+   never reaches the next agent. Then ward memory handoff, then stop. This is
+   the case hand-typing is correct, not a violation of this step: compounding
+   requires knowledge to flow back in from off-pool work, not just out.
 7. BEFORE ENDING: run  ward memory handoff  so the next session inherits
    incomplete work, open runs, and stale candidates.
 8. FAILURE POLICY: two escalating failures exhaust the budget and the run
